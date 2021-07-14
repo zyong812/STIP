@@ -84,6 +84,7 @@ class APRole(object):
                 self.fp[label] = np.append(self.fp[label], f)
 
         else:
+            # 对于每一个 human，每一种 action 取一个 score 最高的 pair
             s_obj_argmax = np.argmax(score.reshape(-1, n_o), axis=1).reshape(-1, n_h) # (#act, n_h)
             s_obj_max = np.max(score.reshape(-1, n_o), axis=1).reshape(-1, n_h) # (#act, n_h)
 
@@ -146,6 +147,7 @@ class APRole(object):
 
                 self.tp[label] = np.append(self.tp[label], t)
                 self.fp[label] = np.append(self.fp[label], f)
+        print('add data finished')
 
     def evaluate(self, print_log=False):
         average_precisions = dict()

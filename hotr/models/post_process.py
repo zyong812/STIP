@@ -81,15 +81,15 @@ class PostProcess(nn.Module):
                 sorted_score = torch.zeros((n_act, K, K+1)).to(pair_actions[batch_idx].device)
                 id_score = torch.zeros((K, K+1)).to(pair_actions[batch_idx].device)
 
-                # Score function
+                # Score function: 排序过程有些奇怪
                 for hs, h_idx, os, o_idx, pair_action in zip(h_idx_score[batch_idx], h_indices[batch_idx], o_idx_score[batch_idx], o_indices[batch_idx], pair_actions[batch_idx]):
-                    matching_score = (1-pair_action[-1]) # no interaction score
+                    matching_score = (1-pair_action[-1]) # matching_score = P(has interaction)
                     if h_idx == o_idx and is_vcoco: o_idx = -1
                     if matching_score > id_score[h_idx, o_idx]:
                         id_score[h_idx, o_idx] = matching_score
                         sorted_score[:, h_idx, o_idx] = matching_score * pair_action[:-1]
-                    score[:, h_idx, o_idx] += matching_score * pair_action[:-1]
-
+                    score[:, h_idx, o_idx] += matching_score * pair_action[:-1] # zy: P(has interaction) * P(action=X)
+                # 这里相当于只考虑了使用 action score 排序，忽略了主语、宾语匹配到具体 instance 的 score, 以及 instance 本身的 classification score
                 score += sorted_score
                 score = score[:, h_inds, :]
                 score = score[:, :, o_inds]

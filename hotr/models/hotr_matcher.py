@@ -105,7 +105,7 @@ class HungarianPairMatcher(nn.Module):
             o_match_indices = torch.nonzero(cost_obox == 0, as_tuple=False) # (num_obox, num_boxes)
 
             tgt_hids, tgt_oids = [], []
-
+            # 用到 bounding box 是为了找到 relation 对应于具体哪个 GT instance
             # obtain ground truth indices for h
             if len(h_match_indices) != len(o_match_indices):
                 import pdb; pdb.set_trace()
