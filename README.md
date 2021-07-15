@@ -27,63 +27,100 @@ $ pip install wandb
 ```
 
 ## 2. HOI dataset setup
-Our current version of HOTR supports the experiments for [V-COCO](https://github.com/s-gupta/v-coco) dataset.
-Download the v-coco dataset under the pulled directory.
+Our current version of HOTR supports the experiments for both [V-COCO](https://github.com/s-gupta/v-coco) and [HICO-DET](https://drive.google.com/file/d/1QZcJmGVlF9f4h-XLWe9Gkmnmj2z1gSnk/view) dataset.
+Download the dataset under the pulled directory.
+For HICO-DET, we use the [annotation files](https://drive.google.com/file/d/1QZcJmGVlF9f4h-XLWe9Gkmnmj2z1gSnk/view) provided by the PPDM authors.
+Download the [list of actions](https://drive.google.com/open?id=1EeHNHuYyJI-qqDk_-5nay7Mb07tzZLsl) as `list_action.txt` and place them under the unballed hico-det directory.
+Below we present how you should place the files.
 ```bash
 # V-COCO setup
 $ git clone https://github.com/s-gupta/v-coco.git
 $ cd v-coco
 $ ln -s [:COCO_DIR] coco/images # COCO_DIR contains images of train2014 & val2014
 $ python script_pick_annotations.py [:COCO_DIR]/annotations
+
+# HICO-DET setup
+$ tar -zxvf hico_20160224_det.tar.gz # move the unballed folder under the pulled repository
+
+# dataset setup
+HOTR
+ │─ v-coco
+ │   │─ data
+ │   │   │─ instances_vcoco_all_2014.json
+ │   │   :
+ │   └─ coco
+ │       │─ images
+ │       │   │─ train2014
+ │       │   │   │─ COCO_train2014_000000000009.jpg
+ │       │   │   :
+ │       │   └─ val2014
+ │       │       │─ COCO_val2014_000000000042.jpg
+ :       :       :
+ │─ hico_20160224_det
+ │       │─ list_action.txt
+ │       │─ annotations
+ │       │   │─ trainval_hico.json
+ │       │   │─ test_hico.json
+ │       │   └─ corre_hico.npy
+ :       :
 ```
 
-If you wish to download the v-coco on our own directory, simply change the 'data_path' argument to the directory you have downloaded the v-coco dataset.
+If you wish to download the datasets on our own directory, simply change the 'data_path' argument to the directory you have downloaded the datasets.
 ```bash
---data_path [:your_own_directory]/v-coco
+--data_path [:your_own_directory]/[v-coco/hico_20160224_det]
 ```
 
-## 3. How to Train/Test HOTR on V-COCO dataset
-For testing, you can either use your own trained weights and pass the directory to the 'resume' argument, or use our provided weights.
+## 3. How to Train/Test HOTR
+For both training and testing, you can either run on a single GPU or multiple GPUs.
+```bash
+# single-gpu training / testing
+$ make [vcoco/hico]_single_[train/test]
+
+# multi-gpu training / testing (8 GPUs)
+$ make [vcoco/hico]_multi_[train/test]
+```
+
+For testing, you can either use your own trained weights and pass the group name and run name to the 'resume' argument, or use our provided weights.
 Below is the example of how you should edit the Makefile.
 ```bash
 # [Makefile]
 # Testing your own trained weights
-multi_test:
+[vcoco/hico]_multi_test:
   python -m torch.distributed.launch \
 		--nproc_per_node=8 \
     ...
-    --resume checkpoints/vcoco/KakaoBrain/multi_run_000001/best.pth # the best performing checkpoint is saved in this format
+    --resume checkpoints/[vcoco/hico_det]/[:group_name]/[:run_name]/best.pth # the best performing checkpoint is saved in this format
 
 # Testing our provided trained weights
-multi_test:
+[vcoco/hico]_multi_test:
   python -m torch.distributed.launch \
 		--nproc_per_node=8 \
     ...
-    --resume checkpoints/vcoco/q16.pth # download the q16.pth as described below.
+    --resume checkpoints/[vcoco/hico_det]/[vcoco/hico]_q16.pth # download the q16.pth as described below.
 ```
-In order to use our provided weights, you can download the weights from this [link](https://arena.kakaocdn.net/brainrepo/hotr/q16.pth).
-Then, pass the directory of the downloaded file (for example, we put the weights under the directory checkpoints/vcoco/q16.pth) to the 'resume' argument as well.
-```bash
-# multi-gpu training / testing (8 GPUs)
-$ make multi_[train/test]
-
-# single-gpu training / testing
-$ make single_[train/test]
-```
+In order to use our provided weights, you can download the weights provided below.
+Then, pass the directory of the downloaded file (for example, to test our pre-trained weights on the vcoco dataset, we put the downloaded weights under the directory checkpoints/vcoco/vcoco_q16.pth) to the 'resume' argument.
 
 ## 4. Results
-Here, we provide improved results of V-COCO Scenario 1 (58.9 mAP, 0.5ms) from the version of our initial submission (55.2 mAP, 0.9ms).
+Here, we provide improved results of V-COCO Scenario 1 (58.9 mAP, 0.5ms) and HICO-DET Default(Full) (23.76 mAP) from the version of our initial submission (55.2 mAP & 23.46 mAP, 0.9ms).
 This is obtained "without" applying any priors on the scores (see [iCAN](https://github.com/vt-vl-lab/iCAN/blob/83a363cfc80bf62538d5faf6ec17c871686c0635/lib/ult/apply_prior.py)).
 
+### 4-1. V-COCO dataset
 | Epoch | # queries | Scenario 1   | Scenario 2  | Checkpoint   |
 |:-----:|:---------:|:------------:|:-----------:|:------------:|
-|  100  |     16    |     58.9     |     63.8    | [download](https://arena.kakaocdn.net/brainrepo/hotr/q16.pth)  |
+|  100  |     16    |     58.9     |     63.8    | [download](https://arena.kakaocdn.net/brainrepo/hotr/vcoco_q16.pth)  |
 
-If you want to use pretrained weights for inference, download the pretrained weights (from the above link) under `checkpoints/vcoco/` and match the interaction query argument as described in the weight file (others are already set in the Makefile).
-Our evaluation code follows the exact implementations of the official python v-coco evaluation.
-You can test the weights by the command below (e.g., the weight file is named as q16.pth, which denotes that the model uses 16 interaction queries).
+### 4-2. HICO-DET dataset
+| Epoch | # queries |  Default(Full)  |  Rare  | Non-Rare | Checkpoint   |
+|:-----:|:---------:|:---------------:|:------:|:--------:|:------------:|
+|  100  |     16    |      23.76      |  22.34 |   24.19  | [download](https://arena.kakaocdn.net/brainrepo/hotr/hico_q16.pth)  |
+
+If you want to use pretrained weights for inference, download the pretrained weights (from the above link) under `checkpoints/vcoco/` or `checkpoints/hico-det/` and match the interaction query argument as described in the weight file (others are already set in the Makefile).
+Our evaluation code follows the exact implementations of the official python evaluation.
+You can test the weights by the command below (e.g., the weight file is named as [vcoco/hico]_q16.pth, which denotes that the model uses 16 interaction queries).
 
 ```bash
+# Inference for V-COCO (8 GPUs)
 python -m torch.distributed.launch \
     --nproc_per_node=8 \
     --use_env vcoco_main.py \
@@ -98,11 +135,29 @@ python -m torch.distributed.launch \
     --eval \
     --dataset_file vcoco \
     --data_path v-coco \
-    --resume checkpoints/vcoco/[:query_num].pth
+    --resume checkpoints/vcoco/vcoco_[:query_num].pth
+
+# Inference for HICO-DET (8 GPUs)
+python -m torch.distributed.launch \
+    --nproc_per_node=8 \
+    --use_env main.py \
+    --batch_size 2 \
+    --HOIDet \
+    --share_enc \
+    --pretrained_dec \
+    --num_hoi_queries [:query_num] \
+    --object_threshold 0 \
+    --temperature 0.2 \ # use the exact same temperature value that you used during training!
+    --no_aux_loss \
+    --eval \
+    --dataset_file hico-det \
+    --data_path hico_20160224_det \
+    --resume checkpoints/hico_det/hico_[:query_num].pth
 ```
 
 The results will appear as the following:
 ```bash
+# V-COCO
 [Logger] Number of params:  51181950
 Evaluation Inference (V-COCO)  [308/308]  eta: 0:00:00    time: 0.2063  data: 0.0127  max mem: 1578
 [stats] Total Time (test) : 0:01:05 (0.2114 s / it)
@@ -135,9 +190,18 @@ Evaluation Inference (V-COCO)  [308/308]  eta: 0:00:00    time: 0.2063  data: 0.
                kick_obj: AP = 73.92 (#pos = 180)
                read_obj: AP = 44.81 (#pos = 111)
         snowboard_instr: AP = 81.25 (#pos = 277)
-| mAP(role scenario_1): 58.94
+│ mAP(role scenario_1): 58.94
 ----------------------------------------------------
 
+# HICO-DET
+[Logger] Number of params:  51204566
+Evaluation Inference (HICO-DET)  [597/597]  eta: 0:00:00    time: 0.2099  data: 0.0109  max mem: 1272
+[stats] Total Time (test) : 0:02:07 (0.2140 s / it)
+[stats] HOI Recognition Time (avg) : 0.9025 ms
+[stats] Score Matrix Generation completed
+│ mAP (full)            : 23.76
+│ mAP (rare)            : 22.34
+│ mAP (non-rare)        : 24.19
 ```
 The HOI recognition time is calculated by the end-to-end inference time excluding the object detection time.
 
@@ -147,8 +211,7 @@ The ground-truth for the auxiliary outputs are matched with the ground-truth HOI
 
 ## 6. Temperature Hyperparameter, tau
 Based on our experimental results, the temperature hyperparameter is sensitive to the number of interaction queries and the coefficient for the index loss and index cost, and the number of decoder layers.
-Empirically, a larger number of queries require a larger tau, and a smaller coefficient for the loss and cost for HO Pointers requires a smaller tau (e.g., for 16 interaction queries, tau=0.05 for the default set_cost_idx=1, hoi_idx_loss_coef=1, hoi_act_loss_coef=10 shows the best result).
-The initial version of HOTR (with 55.2 mAP) has been trained with 100 queries, which required a larger tau (tau=0.1).
+Empirically, a larger number of queries require a larger tau, and a smaller coefficient for the loss and cost for HO Pointers requires a smaller tau (e.g., for 16 interaction queries, tau=0.05 for the default set_cost_idx=10, hoi_idx_loss_coef=1, hoi_act_loss_coef=10 shows the best result for V-COCO and tau=0.2, set_cost_idx=20 shows the best result for HICO-DET).
 There might be better results than the tau we used in our paper according to these three factors.
 Feel free to explore yourself!
 
