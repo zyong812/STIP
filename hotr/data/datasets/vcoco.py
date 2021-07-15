@@ -381,9 +381,9 @@ class VCocoDetection(Dataset):
             'boxes': torch.as_tensor(inst_bbox, dtype=torch.float32),
             'labels': torch.tensor(inst_label, dtype=torch.int64),
             'inst_actions': torch.tensor(inst_actions, dtype=torch.int64),
-            'pair_boxes': torch.as_tensor(pair_bbox, dtype=torch.float32),
+            'pair_boxes': torch.as_tensor(pair_bbox, dtype=torch.float32), # 可能遇到 tail box 都是 -1 的情况 (tail 被遮挡住了，或者是不及物动词如 run)
             'pair_actions': torch.tensor(pair_actions, dtype=torch.int64),
-            'pair_targets': torch.tensor(pair_targets, dtype=torch.int64),
+            'pair_targets': torch.tensor(pair_targets, dtype=torch.int64), # tail obj class
         }
 
         return sample

@@ -147,7 +147,7 @@ class APRole(object):
 
                 self.tp[label] = np.append(self.tp[label], t)
                 self.fp[label] = np.append(self.fp[label], f)
-        print('add data finished')
+        # print('add data finished')
 
     def evaluate(self, print_log=False):
         average_precisions = dict()
