@@ -203,7 +203,9 @@ def main(args):
                             'mAP': test_stats['mAP']
                         })
             print('-'*100)
-        save_ckpt(args, model_without_ddp, optimizer, lr_scheduler, epoch, filename='checkpoint')
+
+        if epoch%5==0:
+            save_ckpt(args, model_without_ddp, optimizer, lr_scheduler, epoch, filename=f'checkpoint_{epoch}')
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
