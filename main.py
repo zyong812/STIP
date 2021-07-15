@@ -25,6 +25,7 @@ from hotr.engine.trainer import train_one_epoch
 from hotr.engine import hoi_evaluator, hoi_accumulator
 from hotr.models import build_model
 import wandb
+from hotr.engine.evaluator_coco import coco_evaluate
 
 from hotr.util.logger import print_params, print_args
 
@@ -44,7 +45,7 @@ def save_ckpt(args, model_without_ddp, optimizer, lr_scheduler, epoch, filename)
 def main(args):
     utils.init_distributed_mode(args)
 
-    if args.frozen_weights is not None:
+    if args.frozen_weights is not None: # pretrained DETR
         print("Freeze weights for detector")
 
     device = torch.device(args.device)
@@ -141,10 +142,12 @@ def main(args):
             else: raise ValueError(f'dataset {args.dataset_file} is not supported.')
             return
         else:
-            test_stats, coco_evaluator = evaluate_coco(model, criterion, postprocessors,
+            # check original detr code
+            base_ds = get_coco_api_from_dataset(data_loader_val)
+            test_stats, coco_evaluator = coco_evaluate(model, criterion, postprocessors,
                                                   data_loader_val, base_ds, device, args.output_dir)
             if args.output_dir:
-                utils.save_on_master(coco_evaluator.coco_eval["bbox"].eval, output_dir / "eval.pth")
+                utils.save_on_master(coco_evaluator.coco_eval["bbox"].eval, args.output_dir / "eval.pth")
             return
 
     # stats
@@ -172,7 +175,7 @@ def main(args):
         lr_scheduler.step()
 
         # Validation
-        if args.validate:
+        if args.validate and epoch%5==0:
             print('-'*100)
             if args.dataset_file == 'vcoco':
                 total_res = hoi_evaluator(args, model, criterion, postprocessors, data_loader_val, device)

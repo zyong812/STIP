@@ -15,8 +15,10 @@ from collections import defaultdict
 from hotr.util.misc import SmoothedValue
 
 def print_params(model):
+    n_parameters = sum(p.numel() for p in model.parameters())
+    print('\n[Logger] Number of total params: ', n_parameters)
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print('\n[Logger] Number of params: ', n_parameters)
+    print('\n[Logger] Number of trainable params: ', n_parameters)
     return n_parameters
 
 def print_args(args):
