@@ -44,7 +44,7 @@ class VCocoEvaluator(object):
             # ground-truth
             gt_h_inds = (target['labels'] == 1)
             gt_h_box = target['boxes'][gt_h_inds, :4].cpu().numpy()
-            gt_h_act = target['inst_actions'][gt_h_inds, :self.num_human_act].cpu().numpy()
+            gt_h_act = target['inst_actions'][gt_h_inds, :self.num_human_act].cpu().numpy() # self.num_human_act=26, 用来过滤 GT
 
             gt_p_box = target['pair_boxes'].cpu().numpy()
             gt_p_act = target['pair_actions'].cpu().numpy()
@@ -52,6 +52,6 @@ class VCocoEvaluator(object):
             score = score[self.action_idx, :, :]
             gt_p_act = gt_p_act[:, self.action_idx]
 
-            self.role_eval1.add_data(hbox, obox, score, gt_h_box, gt_h_act, gt_p_box, gt_p_act)
+            self.role_eval1.add_data(hbox, obox, score, gt_h_box, gt_h_act, gt_p_box, gt_p_act) # gt_h_act: Nx26, gt_p_act: Nx25, 有什么区别?
             self.role_eval2.add_data(hbox, obox, score, gt_h_box, gt_h_act, gt_p_box, gt_p_act)
             self.img_ids.append(img_id)

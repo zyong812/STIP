@@ -47,7 +47,7 @@ def vcoco_evaluate(model, criterion, postprocessors, data_loader, device, output
                 {'target': target, 'prediction': output} for target, output in zip(targets, results)
             }
         )
-        # break
+        # if len(res) > 10: break
     print(f"[stats] HOI Recognition Time (avg) : {sum(hoi_recognition_time)/len(hoi_recognition_time):.4f} ms")
 
     start_time = time.time()

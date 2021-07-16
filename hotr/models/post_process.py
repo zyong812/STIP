@@ -65,7 +65,7 @@ class PostProcess(nn.Module):
 
                     # for scenario 1 in v-coco dataset
                     o_inds = torch.cat((o_inds, torch.ones(1).type(torch.bool).to(o_inds.device)))
-                    o_box = torch.cat((o_box, torch.Tensor([0, 0, 0, 0]).unsqueeze(0).to(o_box.device)))
+                    o_box = torch.cat((o_box, torch.Tensor([0, 0, 0, 0]).unsqueeze(0).to(o_box.device))) # 增加一个空的 box
 
                     result_dict = {
                         'h_box': h_box, 'h_cat': h_cat,
@@ -82,10 +82,10 @@ class PostProcess(nn.Module):
                     sorted_score = torch.zeros((n_act, K, K+1)).to(pair_actions[batch_idx].device)
                     id_score = torch.zeros((K, K+1)).to(pair_actions[batch_idx].device)
 
-                    # Score function
+                    # Score function: 所有 query 的结果加起来. 为什么要这么排序？
                     for hs, h_idx, os, o_idx, pair_action in zip(h_idx_score[batch_idx], h_indices[batch_idx], o_idx_score[batch_idx], o_indices[batch_idx], pair_actions[batch_idx]):
                         matching_score = (1-pair_action[-1]) # no interaction score
-                        if h_idx == o_idx: o_idx = -1
+                        if h_idx == o_idx: o_idx = -1 # 特殊情况处理，主语和宾语相同
                         if matching_score > id_score[h_idx, o_idx]:
                             id_score[h_idx, o_idx] = matching_score
                             sorted_score[:, h_idx, o_idx] = matching_score * pair_action[:-1]
