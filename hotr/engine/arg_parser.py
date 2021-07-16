@@ -139,4 +139,7 @@ def get_args_parser():
     parser.add_argument('--project_name', default='HOTR')
     parser.add_argument('--group_name', default='KakaoBrain')
     parser.add_argument('--run_name', default='run_000001')
+
+    # VRTR
+    parser.add_argument('--VRTR_relation_head', action='store_true', default=False)
     return parser

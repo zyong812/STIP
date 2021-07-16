@@ -23,6 +23,7 @@ from .post_process import PostProcess
 from .feed_forward import MLP
 
 from .hotr import HOTR
+from .vrtr import VRTR, VRTRPostProcess, VRTRCriterion
 
 class DETR(nn.Module):
     """ This is the DETR module that performs object detection """
@@ -113,7 +114,11 @@ def build(args):
         weight_dict.update(aux_weight_dict)
 
     losses = ['labels', 'boxes', 'cardinality'] if args.frozen_weights is None else []
-    if args.HOIDet:
+    if args.HOIDet and args.VRTR_relation_head:
+        model = VRTR(args, detr=model)
+        criterion = VRTRCriterion(args)
+        postprocessors = {'hoi': VRTRPostProcess(args, model)}
+    elif args.HOIDet:
         hoi_matcher = build_hoi_matcher(args)
         hoi_losses = []
         hoi_losses.append('pair_labels')
