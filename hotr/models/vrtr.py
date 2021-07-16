@@ -20,7 +20,6 @@ class VRTR(nn.Module):
             # if this flag is given, freeze the object detection related parameters of DETR
             for p in self.parameters():
                 p.requires_grad_(False)
-        hidden_dim = detr.transformer.d_model
         # --------------------------------------
 
         # relation proposal
@@ -141,11 +140,11 @@ class RelationFeatureExtractor(nn.Module):
 
         # reduce channel size before pooling
         out_ch = 256
-        self.input_proj = nn.Conv2d(in_channels, out_ch, kernel_size=1)
-        self.visual_proj = nn.Sequential(
-            make_fc(out_ch * (resolution**2), out_dim, a=0),
-            nn.ReLU(),
+        self.input_proj = nn.Sequential(
+            nn.Conv2d(in_channels, out_ch, kernel_size=1),
+            nn.ReLU(inplace=True),
         )
+        self.visual_proj = make_fc(out_ch * (resolution**2), out_dim, a=0)
 
         # rectangle
         spatial_out_ch = out_ch // 4
@@ -159,7 +158,7 @@ class RelationFeatureExtractor(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(spatial_out_ch, momentum=0.01),
             nn.Flatten(),
-            make_fc(spatial_out_ch*(resolution**2), out_dim, a=0),
+            make_fc(spatial_out_ch*(resolution**2), out_dim, a=0)
         )
 
         # fusion
