@@ -43,6 +43,7 @@ class VCocoDetection(Dataset):
         self.vcoco_all = self.load_vcoco(self.ann_file)
 
         # Save COCO annotation data
+        # self.image_ids = sorted(list(set(self.vcoco_all[0]['image_id'].reshape(-1))))[:100]
         self.image_ids = sorted(list(set(self.vcoco_all[0]['image_id'].reshape(-1))))
 
         # Filter Data
@@ -232,7 +233,7 @@ class VCocoDetection(Dataset):
         # >>> For Objects that are in COCO but not in V-COCO,
         # >>> Human -> [-1 * 26, 0 * 25]
         # >>> Object -> [0 * 51]
-        # >>> Don't return anything for actions with max 0 or max -1
+        # >>> Don't return anything for actions with max 0 or max -1 # 忽略没有关系标注的目标
         max_val = inst_action.max(axis=1)
         if (max_val > 0).sum() == 0:
             print(f"No Annotations for {image_index}")
@@ -240,7 +241,7 @@ class VCocoDetection(Dataset):
             print(self.vcoco_labels[image_index]['agent_actions'][idx])
             print(self.vcoco_labels[image_index]['obj_actions'][idx])
 
-        return inst_bbox[max_val > 0], inst_category[max_val > 0], inst_action[max_val > 0]
+        return inst_bbox[max_val > 0], inst_category[max_val > 0], inst_action[max_val > 0], max_val > 0
 
     # >>> 2. pair
     def load_pair_annotations(self, image_index):
@@ -248,6 +249,7 @@ class VCocoDetection(Dataset):
         pair_action = np.zeros((0, self.num_action()), np.int)
         pair_bbox = np.zeros((0, 8), dtype=np.float32)
         pair_target = np.zeros((0, ), dtype=np.int)
+        relation_map = np.zeros((num_ann, num_ann, self.num_action()), dtype=np.int)
 
         for idx in range(num_ann):
             h_box = self.vcoco_labels[image_index]['boxes'][idx]
@@ -282,7 +284,13 @@ class VCocoDetection(Dataset):
                 pair_bbox = np.concatenate([pair_bbox, np.expand_dims(box, axis=0)], axis=0)
                 pair_target = np.concatenate([pair_target, tar], axis=0)
 
-        return pair_bbox, pair_action, pair_target
+                # subj_id -> obj_id: actions
+                if o_id == -1: # 对于 obj 为空的特殊处理，将 obj 设为自己
+                    relation_map[idx, idx] = np.maximum(relation_map[idx, o_id], act[0])
+                else:
+                    relation_map[idx, o_id] = act[0]
+
+        return pair_bbox, pair_action, pair_target, relation_map
 
     # >>> 3. image infos
     def load_annotations(self):
@@ -373,8 +381,10 @@ class VCocoDetection(Dataset):
         img_idx = int(self.image_ids[idx])
 
         # load each annotation
-        inst_bbox, inst_label, inst_actions = self.load_instance_annotations(img_idx)
-        pair_bbox, pair_actions, pair_targets = self.load_pair_annotations(img_idx)
+        inst_bbox, inst_label, inst_actions, kept_box_idxs = self.load_instance_annotations(img_idx)
+        pair_bbox, pair_actions, pair_targets, relation_map = self.load_pair_annotations(img_idx)
+        relation_map = relation_map[kept_box_idxs][:, kept_box_idxs]
+        assert relation_map.shape[0] == len(inst_bbox)
 
         sample = {
             'image_id' : torch.tensor([img_idx]),
@@ -384,6 +394,7 @@ class VCocoDetection(Dataset):
             'pair_boxes': torch.as_tensor(pair_bbox, dtype=torch.float32), # 可能遇到 tail box 都是 -1 的情况 (tail 被遮挡住了，或者是不及物动词如 run)
             'pair_actions': torch.tensor(pair_actions, dtype=torch.int64),
             'pair_targets': torch.tensor(pair_targets, dtype=torch.int64), # tail obj class
+            'relation_map': torch.tensor(relation_map, dtype=torch.int64)
         }
 
         return sample

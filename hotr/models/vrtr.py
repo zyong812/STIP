@@ -10,6 +10,7 @@ from .feed_forward import MLP
 from torchvision.ops import roi_align
 from .transformer import TransformerDecoderLayer, TransformerDecoder
 from hotr.util import box_ops
+import numpy as np
 
 # sequential visual relationship transformer
 class VRTR(nn.Module):
@@ -65,15 +66,17 @@ class VRTR(nn.Module):
         # -----------------------------------------------
 
         # >>>>>>>>>>>> HOI DETECTION LAYERS <<<<<<<<<<<<<<<
-        pred_rel_pairs, pred_actions = [], []
+        pred_rel_exists, pred_rel_pairs, pred_actions = [], [], []
         for imgid in range(bs):
             # >>>>>>>>>>>> relation proposal <<<<<<<<<<<<<<<
+            # todo: sample pos relations
             inst_labels = outputs_class[imgid].max(-1)[-1]
             rel_mat = torch.zeros((num_nodes, num_nodes))
             rel_mat[inst_labels==1] = 1
             rel_pairs = rel_mat.nonzero(as_tuple=False)
+            # if len(rel_pairs) == 0: rel_pairs = (rel_mat == 0).nonzero(as_tuple=False) # todo: remove
             rel_reps = self.union_box_feature_extractor(features[-1], outputs_coord[imgid], rel_pairs, idx=imgid)
-            p_relation_exist_logits = self.relation_proposal_mlp(rel_reps)
+            p_relation_exist_logits = self.relation_proposal_mlp(rel_reps).squeeze()
 
             _, sort_rel_inds = p_relation_exist_logits.squeeze().sort(descending=True)
             kept_rel_inds = sort_rel_inds[:self.args.num_hoi_queries]
@@ -87,13 +90,15 @@ class VRTR(nn.Module):
             action_logits = self.action_embed(outs)
             pred_rel_pairs.append(kept_rel_pairs)
             pred_actions.append(action_logits)
+            pred_rel_exists.append(p_relation_exist_logits[kept_rel_inds])
 
         out = {
             "pred_logits": outputs_class,
             "pred_boxes": outputs_coord,
             "pred_rel_pairs": torch.stack(pred_rel_pairs, dim=0),
             "pred_actions": torch.cat(pred_actions, dim=2).transpose(1,2)[-1],
-            "hoi_recognition_time": 1, # todo: fix
+            "pred_action_exists": torch.stack(pred_rel_exists, dim=0),
+            "hoi_recognition_time": 0,
         }
         return out
 
@@ -102,12 +107,47 @@ class VRTRCriterion(nn.Module):
     1. proposal loss
     2. relation classification loss
     """
-    def __init__(self, args):
+    def __init__(self, args, matcher):
         super().__init__()
         self.args = args
+        self.matcher = matcher
+        self.weight_dict = {
+            'loss_proposal': 1,
+            'loss_act': 1
+        }
 
-    def forward(self, outputs, targets):
-        pass
+        if args.dataset_file == 'vcoco':
+            self.invalid_ids = args.invalid_ids
+            self.valid_ids = np.concatenate((args.valid_ids,[-1]), axis=0) # no interaction
+
+    def forward(self, outputs, targets, log=False):
+        # instance matching
+        outputs_without_aux = {k: v for k, v in outputs.items() if (k != 'aux_outputs' and k != 'hoi_aux_outputs')}
+        indices = self.matcher(outputs_without_aux, targets)
+
+        # generate relation targets
+        all_rel_pair_targets = []
+        for imgid, (tgt, (det_idxs, gtbox_idxs)) in enumerate(zip(targets, indices)):
+            det2gt_map = {int(d): int(g) for d, g in zip(det_idxs, gtbox_idxs)}
+            gt_relation_map = tgt['relation_map']
+            rel_pairs = outputs['pred_rel_pairs'][imgid]
+            rel_pair_targets = torch.zeros((len(rel_pairs), gt_relation_map.shape[-1])).to(gt_relation_map.device)
+            for idx, rel in enumerate(rel_pairs):
+                if (rel[0] in det2gt_map) and (rel[1] in det2gt_map):
+                    rel_pair_targets[idx] = gt_relation_map[det2gt_map[int(rel)]]
+            all_rel_pair_targets.append(rel_pair_targets)
+        all_rel_pair_targets = torch.stack(all_rel_pair_targets, dim=0)
+
+        rel_proposal_targets = (all_rel_pair_targets.sum(-1) > 0).float()
+        all_rel_pair_targets = torch.cat([all_rel_pair_targets, rel_proposal_targets.unsqueeze(-1)], dim=-1)
+
+        # loss proposals
+        loss_proposal = F.binary_cross_entropy_with_logits(outputs['pred_action_exists'], rel_proposal_targets)
+
+        # loss action classification
+        loss_action = F.binary_cross_entropy_with_logits(outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids])
+
+        return {'loss_proposal': loss_proposal, 'loss_act': loss_action}
 
 
 class VRTRPostProcess(nn.Module):
@@ -153,7 +193,6 @@ class VRTRPostProcess(nn.Module):
                 'o_box': o_box, 'o_cat': o_cat,
                 'scores': s, 'labels': l, 'boxes': b
             }
-
 
             K = boxes.shape[1]
             n_act = pair_actions[batch_idx][:, :-1].shape[-1]
@@ -294,7 +333,6 @@ class RelationFeatureExtractor(nn.Module):
         rect_input = torch.stack((head_rect, tail_rect), dim=1) # (num_rel, 4, rect_size, rect_size)
         rect_features = self.rect_conv(rect_input)
 
-        # fusion
         x = self.fusion_fc(visual_feats + rect_features)
         return x
 
