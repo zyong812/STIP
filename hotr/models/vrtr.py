@@ -9,6 +9,7 @@ from hotr.util.misc import NestedTensor, nested_tensor_from_tensor_list
 from .feed_forward import MLP
 from torchvision.ops import roi_align
 from .transformer import TransformerDecoderLayer, TransformerDecoder
+from hotr.util import box_ops
 
 # sequential visual relationship transformer
 class VRTR(nn.Module):
@@ -91,7 +92,7 @@ class VRTR(nn.Module):
             "pred_logits": outputs_class,
             "pred_boxes": outputs_coord,
             "pred_rel_pairs": torch.stack(pred_rel_pairs, dim=0),
-            "pred_actions": torch.cat(pred_actions, dim=2),
+            "pred_actions": torch.cat(pred_actions, dim=2).transpose(1,2)[-1],
             "hoi_recognition_time": 1, # todo: fix
         }
         return out
@@ -116,8 +117,71 @@ class VRTRPostProcess(nn.Module):
 
     @torch.no_grad()
     def forward(self, outputs, target_sizes, threshold=0, dataset='coco'):
-       pass
+        out_logits, out_bbox = outputs['pred_logits'], outputs['pred_boxes']
 
+        assert len(out_logits) == len(target_sizes)
+        assert target_sizes.shape[1] == 2
+
+        prob = F.softmax(out_logits, -1)
+        scores, labels = prob[..., :-1].max(-1)
+
+        boxes = box_ops.box_cxcywh_to_xyxy(out_bbox)
+        img_h, img_w = target_sizes.unbind(1)
+        scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1)
+        boxes = boxes * scale_fct[:, None, :]
+
+        # for relationship post-processing
+        pair_actions = torch.sigmoid(outputs['pred_actions'])
+        h_indices = outputs['pred_rel_pairs'][:,:,0]
+        o_indices = outputs['pred_rel_pairs'][:,:,1]
+
+        # 和 HOTR 保持一致的排序方式 (todo: 我们方法该怎么更加合理排序)
+        results = []
+        for batch_idx, (s, l, b)  in enumerate(zip(scores, labels, boxes)):
+            h_inds = (l == 1) & (s > threshold)
+            o_inds = (s > threshold)
+
+            h_box, h_cat = b[h_inds], s[h_inds]
+            o_box, o_cat = b[o_inds], s[o_inds]
+
+            # for scenario 1 in v-coco dataset
+            o_inds = torch.cat((o_inds, torch.ones(1).type(torch.bool).to(o_inds.device)))
+            o_box = torch.cat((o_box, torch.Tensor([0, 0, 0, 0]).unsqueeze(0).to(o_box.device))) # 增加一个空的 box
+
+            result_dict = {
+                'h_box': h_box, 'h_cat': h_cat,
+                'o_box': o_box, 'o_cat': o_cat,
+                'scores': s, 'labels': l, 'boxes': b
+            }
+
+
+            K = boxes.shape[1]
+            n_act = pair_actions[batch_idx][:, :-1].shape[-1]
+            score = torch.zeros((n_act, K, K+1)).to(pair_actions[batch_idx].device)
+            sorted_score = torch.zeros((n_act, K, K+1)).to(pair_actions[batch_idx].device)
+            id_score = torch.zeros((K, K+1)).to(pair_actions[batch_idx].device)
+
+            # Score function: 所有 query 的结果加起来. 为什么要这么排序？
+            for h_idx, o_idx, pair_action in zip(h_indices[batch_idx], o_indices[batch_idx], pair_actions[batch_idx]):
+                matching_score = (1-pair_action[-1]) # no interaction score
+                if h_idx == o_idx: o_idx = -1 # 特殊情况处理，主语和宾语相同
+                if matching_score > id_score[h_idx, o_idx]:
+                    id_score[h_idx, o_idx] = matching_score
+                    sorted_score[:, h_idx, o_idx] = matching_score * pair_action[:-1]
+                score[:, h_idx, o_idx] += matching_score * pair_action[:-1]
+
+            score += sorted_score
+            score = score[:, h_inds, :]
+            score = score[:, :, o_inds]
+
+            result_dict.update({
+                'pair_score': score,
+                'hoi_recognition_time': 0,
+            })
+
+            results.append(result_dict)
+
+        return results
 
 def make_fc(dim_in, hidden_dim, a=1):
     '''
