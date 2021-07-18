@@ -8,11 +8,14 @@ import torch.nn.functional as F
 from hotr.util.misc import NestedTensor, nested_tensor_from_tensor_list
 from .feed_forward import MLP
 from torchvision.ops import roi_align
+from .transformer import TransformerDecoderLayer, TransformerDecoder
 
 # sequential visual relationship transformer
 class VRTR(nn.Module):
     def __init__(self, args, detr):
         super().__init__()
+        self.args = args
+        backbone_out_ch = 2048
 
         # * Instance Transformer ---------------
         self.detr = detr
@@ -24,13 +27,20 @@ class VRTR(nn.Module):
 
         # relation proposal
         rel_rep_dim = 1024
-        self.union_box_feature_extractor = RelationFeatureExtractor(in_channels=2048, resolution=7, out_dim=rel_rep_dim)
+        self.union_box_feature_extractor = RelationFeatureExtractor(in_channels=backbone_out_ch, resolution=7, out_dim=rel_rep_dim)
         self.relation_proposal_mlp = nn.Sequential(
             make_fc(rel_rep_dim, rel_rep_dim // 2), nn.ReLU(),
             make_fc(rel_rep_dim // 2, 1)
         )
 
         # relation classification
+        self.memory_input_proj = nn.Conv2d(backbone_out_ch, self.args.hidden_dim, kernel_size=1)
+        self.rel_query_pre_proj = make_fc(rel_rep_dim, self.args.hidden_dim)
+
+        decoder_layer = TransformerDecoderLayer(d_model=self.args.hidden_dim, nhead=self.args.hoi_nheads)
+        decoder_norm = nn.LayerNorm(self.args.hidden_dim)
+        self.interaction_decoder = TransformerDecoder(decoder_layer, self.args.hoi_dec_layers, decoder_norm, return_intermediate=True)
+        self.action_embed = nn.Linear(self.args.hidden_dim, self.args.num_actions+1)
 
     def forward(self, samples: NestedTensor):
         if isinstance(samples, (list, torch.Tensor)):
@@ -54,6 +64,7 @@ class VRTR(nn.Module):
         # -----------------------------------------------
 
         # >>>>>>>>>>>> HOI DETECTION LAYERS <<<<<<<<<<<<<<<
+        pred_rel_pairs, pred_actions = [], []
         for imgid in range(bs):
             # >>>>>>>>>>>> relation proposal <<<<<<<<<<<<<<<
             inst_labels = outputs_class[imgid].max(-1)[-1]
@@ -63,14 +74,25 @@ class VRTR(nn.Module):
             rel_reps = self.union_box_feature_extractor(features[-1], outputs_coord[imgid], rel_pairs, idx=imgid)
             p_relation_exist_logits = self.relation_proposal_mlp(rel_reps)
 
+            _, sort_rel_inds = p_relation_exist_logits.squeeze().sort(descending=True)
+            kept_rel_inds = sort_rel_inds[:self.args.num_hoi_queries]
+            kept_rel_pairs = rel_pairs[kept_rel_inds]
+            kept_rel_reps = rel_reps[kept_rel_inds]
+
             # >>>>>>>>>>>> relation classification <<<<<<<<<<<<<<<
-            # outputs_action =
+            outs = self.interaction_decoder(tgt=self.rel_query_pre_proj(kept_rel_reps).unsqueeze(1),
+                                            memory=self.memory_input_proj(src[imgid:imgid+1]).flatten(2).permute(2,0,1),
+                                            memory_key_padding_mask=mask[imgid:imgid+1].flatten(1), pos=pos[-1][imgid:imgid+1].flatten(2).permute(2, 0, 1)) # todo: union mask, pos embedding etc.
+            action_logits = self.action_embed(outs)
+            pred_rel_pairs.append(kept_rel_pairs)
+            pred_actions.append(action_logits)
 
         out = {
             "pred_logits": outputs_class,
             "pred_boxes": outputs_coord,
-            # "pred_rel_pairs": outputs_action[-1],
-            # "pred_actions": outputs_action[-1],
+            "pred_rel_pairs": torch.stack(pred_rel_pairs, dim=0),
+            "pred_actions": torch.cat(pred_actions, dim=2),
+            "hoi_recognition_time": 1, # todo: fix
         }
         return out
 
