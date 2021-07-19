@@ -115,16 +115,25 @@ class VRTR(nn.Module):
             pred_actions.append(action_logits)
             pred_rel_exists.append(sampled_rel_pred_exists)
 
+        pred_actions = torch.cat(pred_actions, dim=2).transpose(1,2)
         out = {
             "pred_logits": outputs_class,
             "pred_boxes": outputs_coord,
             "pred_rel_pairs": torch.stack(pred_rel_pairs, dim=0),
-            "pred_actions": torch.cat(pred_actions, dim=2).transpose(1,2)[-1],
+            "pred_actions": pred_actions[-1],
             "pred_action_exists": torch.stack(pred_rel_exists, dim=0),
             "det2gt_indices": det2gt_indices,
             "hoi_recognition_time": 0,
         }
+
+        if self.args.hoi_aux_loss: # auxiliary loss
+            out['hoi_aux_outputs'] = self._set_aux_loss_with_tgt(pred_actions)
+
         return out
+
+    @torch.jit.unused
+    def _set_aux_loss_with_tgt(self, outputs_action):
+        return [{'pred_actions': x} for x in outputs_action[:-1]]
 
 class VRTRCriterion(nn.Module):
     """ This class computes the loss for VRTR.
@@ -136,9 +145,12 @@ class VRTRCriterion(nn.Module):
         self.args = args
         self.matcher = matcher
         self.weight_dict = {
-            'loss_proposal': 1,
+            'loss_proposal': 10,
             'loss_act': 1
         }
+        if args.hoi_aux_loss:
+            for i in range(args.hoi_dec_layers):
+                self.weight_dict.update({f'loss_act_{i}': self.weight_dict['loss_act']})
 
         if args.dataset_file == 'vcoco':
             self.invalid_ids = args.invalid_ids
@@ -168,23 +180,16 @@ class VRTRCriterion(nn.Module):
         rel_proposal_targets = (all_rel_pair_targets.sum(-1) > 0).float()
         all_rel_pair_targets = torch.cat([all_rel_pair_targets, rel_proposal_targets.unsqueeze(-1)], dim=-1)
 
-        # loss proposals
-        loss_proposal = focal_loss(outputs['pred_action_exists'], rel_proposal_targets)
+        loss_proposal = F.binary_cross_entropy_with_logits(outputs['pred_action_exists'], rel_proposal_targets) # loss proposals
+        loss_action = focal_loss(outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids]) # loss action classification
 
-        # loss action classification
-        loss_action = focal_loss(outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids])
+        loss_dict = {'loss_proposal': loss_proposal, 'loss_act': loss_action}
+        if 'hoi_aux_outputs' in outputs:
+            for i, aux_outputs in enumerate(outputs['hoi_aux_outputs']):
+                aux_loss = {f'loss_act_{i}': focal_loss(aux_outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids])}
+                loss_dict.update(aux_loss)
 
-        return {'loss_proposal': loss_proposal, 'loss_act': loss_action}
-
-def focal_loss(blogits, target_classes, alpha=0.25, gamma=2):
-    logits = blogits.sigmoid() # prob(positive)
-    loss_bce = F.binary_cross_entropy(logits, target_classes, reduction='none')
-    p_t = logits * target_classes + (1 - logits) * (1 - target_classes)
-    loss_bce = ((1-p_t)**gamma * loss_bce)
-    alpha_t = alpha * target_classes + (1 - alpha) * (1 - target_classes)
-    loss_focal = alpha_t * loss_bce
-    loss = loss_focal.sum() / max(target_classes.sum(), 1)
-    return loss
+        return loss_dict
 
 class VRTRPostProcess(nn.Module):
     def __init__(self, args, model):
@@ -257,41 +262,6 @@ class VRTRPostProcess(nn.Module):
             results.append(result_dict)
 
         return results
-
-def make_fc(dim_in, hidden_dim, a=1):
-    '''
-        Caffe2 implementation uses XavierFill, which in fact
-        corresponds to kaiming_uniform_ in PyTorch
-        a: negative slope
-    '''
-    fc = nn.Linear(dim_in, hidden_dim)
-    nn.init.kaiming_uniform_(fc.weight, a=a)
-    nn.init.constant_(fc.bias, 0)
-    return fc
-
-
-def make_conv3x3(
-    in_channels,
-    out_channels,
-    padding=1,
-    dilation=1,
-    stride=1,
-    kaiming_init=True
-):
-    conv = nn.Conv2d(
-        in_channels,
-        out_channels,
-        kernel_size=3,
-        stride=stride,
-        padding=padding,
-        dilation=dilation,
-    )
-    if kaiming_init:
-        nn.init.kaiming_normal_(conv.weight, mode="fan_out", nonlinearity="relu")
-    else:
-        torch.nn.init.normal_(conv.weight, std=0.01)
-        nn.init.constant_(conv.bias, 0)
-    return conv
 
 # todo: add semantic feature
 class RelationFeatureExtractor(nn.Module):
@@ -372,3 +342,48 @@ class RelationFeatureExtractor(nn.Module):
         x = self.fusion_fc(visual_feats + rect_features)
         return x
 
+
+def focal_loss(blogits, target_classes, alpha=0.25, gamma=2):
+    logits = blogits.sigmoid() # prob(positive)
+    loss_bce = F.binary_cross_entropy(logits, target_classes, reduction='none')
+    p_t = logits * target_classes + (1 - logits) * (1 - target_classes)
+    loss_bce = ((1-p_t)**gamma * loss_bce)
+    alpha_t = alpha * target_classes + (1 - alpha) * (1 - target_classes)
+    loss_focal = alpha_t * loss_bce
+    loss = loss_focal.sum() / max(target_classes.sum(), 1)
+    return loss
+
+def make_fc(dim_in, hidden_dim, a=1):
+    '''
+        Caffe2 implementation uses XavierFill, which in fact
+        corresponds to kaiming_uniform_ in PyTorch
+        a: negative slope
+    '''
+    fc = nn.Linear(dim_in, hidden_dim)
+    nn.init.kaiming_uniform_(fc.weight, a=a)
+    nn.init.constant_(fc.bias, 0)
+    return fc
+
+
+def make_conv3x3(
+    in_channels,
+    out_channels,
+    padding=1,
+    dilation=1,
+    stride=1,
+    kaiming_init=True
+):
+    conv = nn.Conv2d(
+        in_channels,
+        out_channels,
+        kernel_size=3,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+    )
+    if kaiming_init:
+        nn.init.kaiming_normal_(conv.weight, mode="fan_out", nonlinearity="relu")
+    else:
+        torch.nn.init.normal_(conv.weight, std=0.01)
+        nn.init.constant_(conv.bias, 0)
+    return conv
