@@ -79,7 +79,6 @@ class VRTR(nn.Module):
         pred_rel_exists, pred_rel_pairs, pred_actions = [], [], []
         for imgid in range(bs):
             # >>>>>>>>>>>> relation proposal <<<<<<<<<<<<<<<
-            # todo: sample pos relations
             inst_labels = outputs_class[imgid].max(-1)[-1]
             rel_mat = torch.zeros((num_nodes, num_nodes))
             rel_mat[inst_labels==1] = 1
@@ -170,13 +169,22 @@ class VRTRCriterion(nn.Module):
         all_rel_pair_targets = torch.cat([all_rel_pair_targets, rel_proposal_targets.unsqueeze(-1)], dim=-1)
 
         # loss proposals
-        loss_proposal = F.binary_cross_entropy_with_logits(outputs['pred_action_exists'], rel_proposal_targets)
+        loss_proposal = focal_loss(outputs['pred_action_exists'], rel_proposal_targets)
 
         # loss action classification
-        loss_action = F.binary_cross_entropy_with_logits(outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids])
+        loss_action = focal_loss(outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids])
 
         return {'loss_proposal': loss_proposal, 'loss_act': loss_action}
 
+def focal_loss(blogits, target_classes, alpha=0.25, gamma=2):
+    logits = blogits.sigmoid() # prob(positive)
+    loss_bce = F.binary_cross_entropy(logits, target_classes, reduction='none')
+    p_t = logits * target_classes + (1 - logits) * (1 - target_classes)
+    loss_bce = ((1-p_t)**gamma * loss_bce)
+    alpha_t = alpha * target_classes + (1 - alpha) * (1 - target_classes)
+    loss_focal = alpha_t * loss_bce
+    loss = loss_focal.sum() / max(target_classes.sum(), 1)
+    return loss
 
 class VRTRPostProcess(nn.Module):
     def __init__(self, args, model):
@@ -199,7 +207,7 @@ class VRTRPostProcess(nn.Module):
         boxes = boxes * scale_fct[:, None, :]
 
         # for relationship post-processing
-        pair_actions = torch.sigmoid(outputs['pred_actions'])
+        pair_actions = outputs['pred_actions'].sigmoid() * outputs['pred_action_exists'].sigmoid().unsqueeze(-1)
         h_indices = outputs['pred_rel_pairs'][:,:,0]
         o_indices = outputs['pred_rel_pairs'][:,:,1]
 
