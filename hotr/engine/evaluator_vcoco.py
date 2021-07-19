@@ -37,6 +37,9 @@ def vcoco_evaluate(model, criterion, postprocessors, data_loader, device, output
         loss_dict = criterion(outputs, targets)
         loss_dict_reduced = utils.reduce_dict(loss_dict) # ddp gathering
 
+        loss_dict_reduced_scaled = {k: v * criterion.weight_dict[k] for k, v in loss_dict_reduced.items() if k in criterion.weight_dict}
+        loss_value = sum(loss_dict_reduced_scaled.values()).item()
+
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
         results = postprocessors['hoi'](outputs, orig_target_sizes, threshold=thr, dataset='vcoco')
         targets = process_target(targets, orig_target_sizes)
@@ -47,8 +50,11 @@ def vcoco_evaluate(model, criterion, postprocessors, data_loader, device, output
                 {'target': target, 'prediction': output} for target, output in zip(targets, results)
             }
         )
+        metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled)
         # if len(res) > 10: break
     print(f"[stats] HOI Recognition Time (avg) : {sum(hoi_recognition_time)/len(hoi_recognition_time):.4f} ms")
+    metric_logger.synchronize_between_processes()
+    print("Averaged validation stats:", metric_logger)
 
     start_time = time.time()
     gather_res = utils.all_gather(res)
