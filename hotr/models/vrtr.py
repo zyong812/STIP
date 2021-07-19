@@ -94,12 +94,15 @@ class VRTR(nn.Module):
                 sampled_rel_pred_exists = self.relation_proposal_mlp(sampled_rel_reps).squeeze()
             else:
                 rel_pairs = rel_mat.nonzero(as_tuple=False)
-                if len(rel_pairs) == 0: rel_pairs = (rel_mat == 0).nonzero(as_tuple=False) # todo: ??
+                if len(rel_pairs) == 0:
+                    print('xxxx')
+                    rel_pairs = (rel_mat == 0).nonzero(as_tuple=False) # todo: ??
                 rel_reps = self.union_box_feature_extractor(features[-1], outputs_coord[imgid], rel_pairs, idx=imgid)
                 p_relation_exist_logits = self.relation_proposal_mlp(rel_reps).squeeze()
 
                 _, sort_rel_inds = p_relation_exist_logits.squeeze().sort(descending=True)
                 sampled_rel_inds = sort_rel_inds[:self.args.num_hoi_queries] # todo: 可以调大一些
+                # sampled_rel_inds = sort_rel_inds[:100]
                 sampled_rel_pairs = rel_pairs[sampled_rel_inds]
 
                 sampled_rel_reps = rel_reps[sampled_rel_inds]
@@ -108,7 +111,8 @@ class VRTR(nn.Module):
             # >>>>>>>>>>>> relation classification <<<<<<<<<<<<<<<
             outs = self.interaction_decoder(tgt=self.rel_query_pre_proj(sampled_rel_reps).unsqueeze(1),
                                             memory=self.memory_input_proj(src[imgid:imgid+1]).flatten(2).permute(2,0,1),
-                                            memory_key_padding_mask=mask[imgid:imgid+1].flatten(1), pos=pos[-1][imgid:imgid+1].flatten(2).permute(2, 0, 1)) # todo: union mask, pos embedding etc.
+                                            memory_key_padding_mask=mask[imgid:imgid+1].flatten(1),
+                                            pos=pos[-1][imgid:imgid+1].flatten(2).permute(2, 0, 1)) # todo: union mask, pos embedding etc.
             action_logits = self.action_embed(outs)
 
             pred_rel_pairs.append(sampled_rel_pairs)
@@ -145,7 +149,7 @@ class VRTRCriterion(nn.Module):
         self.args = args
         self.matcher = matcher
         self.weight_dict = {
-            'loss_proposal': 10,
+            'loss_proposal': 5,
             'loss_act': 1
         }
         if args.hoi_aux_loss:
@@ -298,12 +302,11 @@ class RelationFeatureExtractor(nn.Module):
     def forward(self, features, boxes, rel_pairs, idx):
         """pool feature for boxes on one image
             features: dxhxw
-            boxes: Nx4 (xyxy, nomalized to 0-1)
+            boxes: Nx4 (cx_cy_wh, nomalized to 0-1)
             rel_pairs: Nx2
         """
-        # union boxes
-        head_boxes = boxes[rel_pairs[:,0]]
-        tail_boxes = boxes[rel_pairs[:,1]]
+        head_boxes = box_ops.box_cxcywh_to_xyxy(boxes[rel_pairs[:,0]])
+        tail_boxes = box_ops.box_cxcywh_to_xyxy(boxes[rel_pairs[:,1]])
         union_boxes = torch.cat([
             torch.min(head_boxes[:,:2], tail_boxes[:,:2]),
             torch.max(head_boxes[:,2:], tail_boxes[:,2:])
