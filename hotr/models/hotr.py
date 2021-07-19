@@ -64,7 +64,7 @@ class HOTR(nn.Module):
         self.hoi_aux_loss = hoi_aux_loss
         # ----------------------------------
 
-    def forward(self, samples: NestedTensor):
+    def forward(self, samples: NestedTensor, targets=None):
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
         

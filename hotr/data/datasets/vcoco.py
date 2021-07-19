@@ -341,6 +341,7 @@ class VCocoDetection(Dataset):
         if self._transforms is not None:
             img, target = self._transforms(image, target) # "size" gets converted here
 
+        assert len(target["boxes"]) == target["relation_map"].shape[0]
         return img, target
 
     ############################################################################
@@ -433,7 +434,7 @@ def make_hoi_transforms(image_set):
                 T.RandomResize(scales, max_size=1333),
                 T.Compose([
                     T.RandomResize([400, 500, 600]),
-                    T.RandomSizeCrop(384, 600),
+                    # T.RandomSizeCrop(384, 600), # 可能会丢掉一些 boxes
                     T.RandomResize(scales, max_size=1333),
                 ])
             ),

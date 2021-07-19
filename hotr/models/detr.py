@@ -115,7 +115,7 @@ def build(args):
 
     losses = ['labels', 'boxes', 'cardinality'] if args.frozen_weights is None else []
     if args.HOIDet and args.VRTR_relation_head:
-        model = VRTR(args, detr=model)
+        model = VRTR(args, detr=model, detr_matcher=matcher)
         criterion = VRTRCriterion(args, matcher)
         postprocessors = {'hoi': VRTRPostProcess(args, model)}
     elif args.HOIDet:

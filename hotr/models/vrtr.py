@@ -14,9 +14,10 @@ import numpy as np
 
 # sequential visual relationship transformer
 class VRTR(nn.Module):
-    def __init__(self, args, detr):
+    def __init__(self, args, detr, detr_matcher):
         super().__init__()
         self.args = args
+        self.detr_matcher = detr_matcher
         backbone_out_ch = 2048
 
         # * Instance Transformer ---------------
@@ -44,7 +45,7 @@ class VRTR(nn.Module):
         self.interaction_decoder = TransformerDecoder(decoder_layer, self.args.hoi_dec_layers, decoder_norm, return_intermediate=True)
         self.action_embed = nn.Linear(self.args.hidden_dim, self.args.num_actions+1)
 
-    def forward(self, samples: NestedTensor):
+    def forward(self, samples: NestedTensor, targets=None):
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
 
@@ -64,6 +65,15 @@ class VRTR(nn.Module):
         outputs_class = self.detr.class_embed(hs)[-1]
         outputs_coord = self.detr.bbox_embed(hs).sigmoid()[-1]
         # -----------------------------------------------
+        det2gt_indices = None
+        if self.training:
+            detr_outs = {"pred_logits": outputs_class, "pred_boxes": outputs_coord}
+            det2gt_indices = self.detr_matcher(detr_outs, targets)
+            gt_rel_pairs = []
+            for (ds, gs), t in zip(det2gt_indices, targets):
+                gt2det_map = torch.zeros(len(gs)).to(device=ds.device, dtype=ds.dtype)
+                gt2det_map[gs] = ds
+                gt_rel_pairs.append(gt2det_map[t['relation_map'].sum(-1).nonzero(as_tuple=False)])
 
         # >>>>>>>>>>>> HOI DETECTION LAYERS <<<<<<<<<<<<<<<
         pred_rel_exists, pred_rel_pairs, pred_actions = [], [], []
@@ -73,24 +83,38 @@ class VRTR(nn.Module):
             inst_labels = outputs_class[imgid].max(-1)[-1]
             rel_mat = torch.zeros((num_nodes, num_nodes))
             rel_mat[inst_labels==1] = 1
-            rel_pairs = rel_mat.nonzero(as_tuple=False)
-            # if len(rel_pairs) == 0: rel_pairs = (rel_mat == 0).nonzero(as_tuple=False) # todo: remove
-            rel_reps = self.union_box_feature_extractor(features[-1], outputs_coord[imgid], rel_pairs, idx=imgid)
-            p_relation_exist_logits = self.relation_proposal_mlp(rel_reps).squeeze()
 
-            _, sort_rel_inds = p_relation_exist_logits.squeeze().sort(descending=True)
-            kept_rel_inds = sort_rel_inds[:self.args.num_hoi_queries]
-            kept_rel_pairs = rel_pairs[kept_rel_inds]
-            kept_rel_reps = rel_reps[kept_rel_inds]
+            if self.training:
+                rel_mat[gt_rel_pairs[imgid][:,0].unique()] = 1
+                rel_mat[gt_rel_pairs[imgid][:, 0], gt_rel_pairs[imgid][:, 1]] = 0 # set pos to 0
+                rel_pairs = rel_mat.nonzero(as_tuple=False)
+                sampled_neg_inds = torch.randperm(len(rel_pairs))[:(self.args.num_hoi_queries-len(gt_rel_pairs[imgid]))]
+                sampled_rel_pairs = torch.cat([gt_rel_pairs[imgid], rel_pairs[sampled_neg_inds]], dim=0)
+
+                sampled_rel_reps = self.union_box_feature_extractor(features[-1], outputs_coord[imgid], sampled_rel_pairs, idx=imgid)
+                sampled_rel_pred_exists = self.relation_proposal_mlp(sampled_rel_reps).squeeze()
+            else:
+                rel_pairs = rel_mat.nonzero(as_tuple=False)
+                if len(rel_pairs) == 0: rel_pairs = (rel_mat == 0).nonzero(as_tuple=False) # todo: ??
+                rel_reps = self.union_box_feature_extractor(features[-1], outputs_coord[imgid], rel_pairs, idx=imgid)
+                p_relation_exist_logits = self.relation_proposal_mlp(rel_reps).squeeze()
+
+                _, sort_rel_inds = p_relation_exist_logits.squeeze().sort(descending=True)
+                sampled_rel_inds = sort_rel_inds[:self.args.num_hoi_queries] # todo: 可以调大一些
+                sampled_rel_pairs = rel_pairs[sampled_rel_inds]
+
+                sampled_rel_reps = rel_reps[sampled_rel_inds]
+                sampled_rel_pred_exists = p_relation_exist_logits[sampled_rel_inds]
 
             # >>>>>>>>>>>> relation classification <<<<<<<<<<<<<<<
-            outs = self.interaction_decoder(tgt=self.rel_query_pre_proj(kept_rel_reps).unsqueeze(1),
+            outs = self.interaction_decoder(tgt=self.rel_query_pre_proj(sampled_rel_reps).unsqueeze(1),
                                             memory=self.memory_input_proj(src[imgid:imgid+1]).flatten(2).permute(2,0,1),
                                             memory_key_padding_mask=mask[imgid:imgid+1].flatten(1), pos=pos[-1][imgid:imgid+1].flatten(2).permute(2, 0, 1)) # todo: union mask, pos embedding etc.
             action_logits = self.action_embed(outs)
-            pred_rel_pairs.append(kept_rel_pairs)
+
+            pred_rel_pairs.append(sampled_rel_pairs)
             pred_actions.append(action_logits)
-            pred_rel_exists.append(p_relation_exist_logits[kept_rel_inds])
+            pred_rel_exists.append(sampled_rel_pred_exists)
 
         out = {
             "pred_logits": outputs_class,
@@ -98,6 +122,7 @@ class VRTR(nn.Module):
             "pred_rel_pairs": torch.stack(pred_rel_pairs, dim=0),
             "pred_actions": torch.cat(pred_actions, dim=2).transpose(1,2)[-1],
             "pred_action_exists": torch.stack(pred_rel_exists, dim=0),
+            "det2gt_indices": det2gt_indices,
             "hoi_recognition_time": 0,
         }
         return out
@@ -122,8 +147,11 @@ class VRTRCriterion(nn.Module):
 
     def forward(self, outputs, targets, log=False):
         # instance matching
-        outputs_without_aux = {k: v for k, v in outputs.items() if (k != 'aux_outputs' and k != 'hoi_aux_outputs')}
-        indices = self.matcher(outputs_without_aux, targets)
+        if outputs['det2gt_indices'] is None:
+            outputs_without_aux = {k: v for k, v in outputs.items() if (k != 'aux_outputs' and k != 'hoi_aux_outputs')}
+            indices = self.matcher(outputs_without_aux, targets)
+        else:
+            indices = outputs['det2gt_indices']
 
         # generate relation targets
         all_rel_pair_targets = []
@@ -133,8 +161,8 @@ class VRTRCriterion(nn.Module):
             rel_pairs = outputs['pred_rel_pairs'][imgid]
             rel_pair_targets = torch.zeros((len(rel_pairs), gt_relation_map.shape[-1])).to(gt_relation_map.device)
             for idx, rel in enumerate(rel_pairs):
-                if (rel[0] in det2gt_map) and (rel[1] in det2gt_map):
-                    rel_pair_targets[idx] = gt_relation_map[det2gt_map[int(rel)]]
+                if (int(rel[0]) in det2gt_map) and (int(rel[1]) in det2gt_map):
+                    rel_pair_targets[idx] = gt_relation_map[det2gt_map[int(rel[0])], det2gt_map[int(rel[1])]]
             all_rel_pair_targets.append(rel_pair_targets)
         all_rel_pair_targets = torch.stack(all_rel_pair_targets, dim=0)
 
