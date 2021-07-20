@@ -87,13 +87,28 @@ class VRTR(nn.Module):
             if self.training:
                 rel_mat[gt_rel_pairs[imgid][:,0].unique()] = 1
                 rel_mat[gt_rel_pairs[imgid][:,0], gt_rel_pairs[imgid][:, 1]] = 0
-                rel_pairs = rel_mat.nonzero(as_tuple=False)
-                sampled_neg_inds = torch.randperm(len(rel_pairs))
-                sampled_rel_pairs = torch.cat([gt_rel_pairs[imgid], rel_pairs[sampled_neg_inds]], dim=0)
-                sampled_rel_pairs = sampled_rel_pairs[:self.args.num_hoi_queries]
+                rel_pairs = rel_mat.nonzero(as_tuple=False) # neg pairs
 
-                sampled_rel_reps = self.union_box_feature_extractor(sampled_rel_pairs, features[-1], outputs_coord[imgid], inst_repr[imgid], idx=imgid)
-                sampled_rel_pred_exists = self.relation_proposal_mlp(sampled_rel_reps).squeeze()
+                if self.args.hard_negative_relation_sampling:
+                    # hard negative sampling
+                    all_pairs = torch.cat([gt_rel_pairs[imgid], rel_pairs], dim=0)
+                    gt_pair_count = len(gt_rel_pairs[imgid])
+                    all_rel_reps = self.union_box_feature_extractor(all_pairs, features[-1], outputs_coord[imgid], inst_repr[imgid], idx=imgid)
+                    p_relation_exist_logits = self.relation_proposal_mlp(all_rel_reps).squeeze()
+
+                    gt_inds = torch.arange(gt_pair_count).to(p_relation_exist_logits.device)
+                    _, sort_rel_inds = p_relation_exist_logits.squeeze()[gt_pair_count:].sort(descending=True)
+                    sampled_rel_inds = torch.cat([gt_inds, sort_rel_inds+gt_pair_count])[:self.args.num_hoi_queries]
+
+                    sampled_rel_pairs = all_pairs[sampled_rel_inds]
+                    sampled_rel_reps = all_rel_reps[sampled_rel_inds]
+                    sampled_rel_pred_exists = p_relation_exist_logits[sampled_rel_inds]
+                else:
+                    # random sampling
+                    sampled_neg_inds = torch.randperm(len(rel_pairs))
+                    sampled_rel_pairs = torch.cat([gt_rel_pairs[imgid], rel_pairs[sampled_neg_inds]], dim=0)[:self.args.num_hoi_queries]
+                    sampled_rel_reps = self.union_box_feature_extractor(sampled_rel_pairs, features[-1], outputs_coord[imgid], inst_repr[imgid], idx=imgid)
+                    sampled_rel_pred_exists = self.relation_proposal_mlp(sampled_rel_reps).squeeze()
             else:
                 rel_pairs = rel_mat.nonzero(as_tuple=False)
                 if len(rel_pairs) == 0:
@@ -103,10 +118,9 @@ class VRTR(nn.Module):
                 p_relation_exist_logits = self.relation_proposal_mlp(rel_reps).squeeze()
 
                 _, sort_rel_inds = p_relation_exist_logits.squeeze().sort(descending=True)
-                sampled_rel_inds = sort_rel_inds[:self.args.num_hoi_queries] # todo: 可以调大一些
-                # sampled_rel_inds = sort_rel_inds[:100]
-                sampled_rel_pairs = rel_pairs[sampled_rel_inds]
+                sampled_rel_inds = sort_rel_inds[:self.args.num_hoi_queries] # todo: 可以调大试试
 
+                sampled_rel_pairs = rel_pairs[sampled_rel_inds]
                 sampled_rel_reps = rel_reps[sampled_rel_inds]
                 sampled_rel_pred_exists = p_relation_exist_logits[sampled_rel_inds]
 
