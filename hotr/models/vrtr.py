@@ -270,7 +270,7 @@ class VRTRPostProcess(nn.Module):
 
         return results
 
-# todo: add semantic feature
+
 class RelationFeatureExtractor(nn.Module):
     def __init__(self, in_channels, resolution=7, out_dim=1024):
         super(RelationFeatureExtractor, self).__init__()
@@ -358,12 +358,14 @@ class RelationFeatureExtractor(nn.Module):
 
 
 def focal_loss(blogits, target_classes, alpha=0.25, gamma=2):
-    logits = blogits.sigmoid() # prob(positive)
-    loss_bce = F.binary_cross_entropy(logits, target_classes, reduction='none')
-    p_t = logits * target_classes + (1 - logits) * (1 - target_classes)
+    probs = blogits.sigmoid() # prob(positive)
+    loss_bce = F.binary_cross_entropy_with_logits(blogits, target_classes, reduction='none')
+    p_t = probs * target_classes + (1 - probs) * (1 - target_classes)
     loss_bce = ((1-p_t)**gamma * loss_bce)
+
     alpha_t = alpha * target_classes + (1 - alpha) * (1 - target_classes)
     loss_focal = alpha_t * loss_bce
+
     loss = loss_focal.sum() / max(target_classes.sum(), 1)
     return loss
 
