@@ -58,12 +58,12 @@ class VRTR(nn.Module):
 
         # >>>>>>>>>>>> OBJECT DETECTION LAYERS <<<<<<<<<<
         hs, _ = self.detr.transformer(self.detr.input_proj(src), mask, self.detr.query_embed.weight, pos[-1])
-        inst_repr = F.normalize(hs[-1], p=2, dim=2) # instance representations
+        inst_repr = hs[-1] # instance representations
         num_nodes = inst_repr.shape[1]
 
         # Prediction Heads for Object Detection
-        outputs_class = self.detr.class_embed(hs)[-1]
-        outputs_coord = self.detr.bbox_embed(hs).sigmoid()[-1]
+        outputs_class = self.detr.class_embed(inst_repr)
+        outputs_coord = self.detr.bbox_embed(inst_repr).sigmoid()
         # -----------------------------------------------
         det2gt_indices = None
         if self.training:
@@ -92,14 +92,14 @@ class VRTR(nn.Module):
                 sampled_rel_pairs = torch.cat([gt_rel_pairs[imgid], rel_pairs[sampled_neg_inds]], dim=0)
                 sampled_rel_pairs = sampled_rel_pairs[:self.args.num_hoi_queries]
 
-                sampled_rel_reps = self.union_box_feature_extractor(features[-1], outputs_coord[imgid], sampled_rel_pairs, idx=imgid)
+                sampled_rel_reps = self.union_box_feature_extractor(sampled_rel_pairs, features[-1], outputs_coord[imgid], inst_repr[imgid], idx=imgid)
                 sampled_rel_pred_exists = self.relation_proposal_mlp(sampled_rel_reps).squeeze()
             else:
                 rel_pairs = rel_mat.nonzero(as_tuple=False)
                 if len(rel_pairs) == 0:
                     print('xxxx')
                     rel_pairs = (rel_mat == 0).nonzero(as_tuple=False) # todo: ??
-                rel_reps = self.union_box_feature_extractor(features[-1], outputs_coord[imgid], rel_pairs, idx=imgid)
+                rel_reps = self.union_box_feature_extractor(rel_pairs, features[-1], outputs_coord[imgid], inst_repr[imgid], idx=imgid)
                 p_relation_exist_logits = self.relation_proposal_mlp(rel_reps).squeeze()
 
                 _, sort_rel_inds = p_relation_exist_logits.squeeze().sort(descending=True)
@@ -282,43 +282,39 @@ class RelationFeatureExtractor(nn.Module):
             nn.Conv2d(in_channels, out_ch, kernel_size=1),
             nn.ReLU(inplace=True),
         )
-        self.visual_proj = make_fc(out_ch * (resolution**2), out_dim, a=0)
+        self.visual_proj = make_fc(out_ch * (resolution**2), out_dim)
 
-        # rectangle
-        spatial_out_ch = out_ch // 4
-        self.rect_size = resolution * 4 -1
-        self.rect_conv = nn.Sequential(
-            nn.Conv2d(2, spatial_out_ch, kernel_size=7, stride=2, padding=3, bias=True),
-            nn.ReLU(inplace=True),
-            nn.BatchNorm2d(spatial_out_ch, momentum=0.01),
-            nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
-            nn.Conv2d(spatial_out_ch, spatial_out_ch, kernel_size=3, stride=1, padding=1, bias=True),
-            nn.ReLU(inplace=True),
-            nn.BatchNorm2d(spatial_out_ch, momentum=0.01),
-            nn.Flatten(),
-            make_fc(spatial_out_ch*(resolution**2), out_dim, a=0)
-        )
+        # head & tail feature
+        instr_hidden_dim = 256
+
+        # spatial feature
+        spatial_in_dim, spatial_out_dim = 8, 256
+        self.spatial_proj = make_fc(spatial_in_dim, spatial_out_dim)
 
         # fusion
-        self.fusion_fc = make_fc(out_dim, out_dim, a=0)
+        self.fusion_fc = nn.Sequential(
+            make_fc(out_dim+instr_hidden_dim*2+spatial_out_dim, out_dim), nn.ReLU(),
+            make_fc(out_dim, out_dim), nn.ReLU()
+        )
 
-    def forward(self, features, boxes, rel_pairs, idx):
+    def forward(self, rel_pairs, features, boxes, inst_reprs, idx):
         """pool feature for boxes on one image
             features: dxhxw
             boxes: Nx4 (cx_cy_wh, nomalized to 0-1)
             rel_pairs: Nx2
         """
-        head_boxes = box_ops.box_cxcywh_to_xyxy(boxes[rel_pairs[:,0]])
-        tail_boxes = box_ops.box_cxcywh_to_xyxy(boxes[rel_pairs[:,1]])
+        # union feature
+        xyxy_boxes = box_ops.box_cxcywh_to_xyxy(boxes)
+        head_boxes = xyxy_boxes[rel_pairs[:, 0]]
+        tail_boxes = xyxy_boxes[rel_pairs[:, 1]]
         union_boxes = torch.cat([
             torch.min(head_boxes[:,:2], tail_boxes[:,:2]),
             torch.max(head_boxes[:,2:], tail_boxes[:,2:])
         ], dim=1)
 
-        # visual extractor
+        # H, W = features.tensors.shape[-2:] # stacked image size
         h, w = (~features.mask[idx]).nonzero(as_tuple=False).max(dim=0)[0] + 1 # image area
-        proj_feature = self.input_proj(features.tensors[idx:idx+1, :, :h, :w])
-        # boxes
+        proj_feature = self.input_proj(features.tensors[idx:idx+1])
         scaled_union_boxes = torch.cat(
             [
                 torch.zeros((len(union_boxes),1)).to(device=union_boxes.device),
@@ -326,27 +322,39 @@ class RelationFeatureExtractor(nn.Module):
             ], dim=-1
         )
         union_visual_feats = roi_align(proj_feature, scaled_union_boxes, output_size=self.resolution, sampling_ratio=2)
-        visual_feats = self.visual_proj(union_visual_feats.flatten(start_dim=1))
+        union_visual_feats = self.visual_proj(union_visual_feats.flatten(start_dim=1))
 
-        # spatial extractor
-        num_rel = len(rel_pairs)
-        dummy_x_range = torch.arange(self.rect_size, device=head_boxes.device).view(1, 1, -1).expand(num_rel, self.rect_size, self.rect_size)
-        dummy_y_range = torch.arange(self.rect_size, device=head_boxes.device).view(1, -1, 1).expand(num_rel, self.rect_size, self.rect_size)
-        head_proposal = head_boxes * self.rect_size # resize bbox to the scale rect_size
-        tail_proposal = tail_boxes * self.rect_size
-        head_rect = ((dummy_x_range >= head_proposal[:,0].floor().view(-1,1,1).long()) & \
-                        (dummy_x_range <= head_proposal[:,2].ceil().view(-1,1,1).long()) & \
-                        (dummy_y_range >= head_proposal[:,1].floor().view(-1,1,1).long()) & \
-                        (dummy_y_range <= head_proposal[:,3].ceil().view(-1,1,1).long())).float()
-        tail_rect = ((dummy_x_range >= tail_proposal[:,0].floor().view(-1,1,1).long()) & \
-                        (dummy_x_range <= tail_proposal[:,2].ceil().view(-1,1,1).long()) & \
-                        (dummy_y_range >= tail_proposal[:,1].floor().view(-1,1,1).long()) & \
-                        (dummy_y_range <= tail_proposal[:,3].ceil().view(-1,1,1).long())).float()
-        rect_input = torch.stack((head_rect, tail_rect), dim=1) # (num_rel, 4, rect_size, rect_size)
-        rect_features = self.rect_conv(rect_input)
+        # head & tail features
+        head_feats = inst_reprs[rel_pairs[:,0]]
+        tail_feats = inst_reprs[rel_pairs[:,1]]
+        tail_feats[rel_pairs[:,0]==rel_pairs[:,1]] = 0 # set to 0 when head==tail (i.e., tail overlapped)
 
-        x = self.fusion_fc(visual_feats + rect_features)
+        # spatial layout feats
+        box_layout_feats = self.extract_spatial_layout_feats(xyxy_boxes)
+        rel_spatial_feats = self.spatial_proj(box_layout_feats[rel_pairs[:,0], rel_pairs[:,1]])
+
+        relation_feats = torch.cat([union_visual_feats, head_feats, tail_feats, rel_spatial_feats], dim=-1)
+        x = self.fusion_fc(relation_feats)
         return x
+
+    def extract_spatial_layout_feats(self, xyxy_boxes):
+        box_center = torch.stack([(xyxy_boxes[:, 0] + xyxy_boxes[:, 2]) / 2, (xyxy_boxes[:, 1] + xyxy_boxes[:, 3]) / 2], dim=1)
+        dxdy = box_center.unsqueeze(1) - box_center.unsqueeze(0) # distances
+        theta = (torch.atan2(dxdy[...,1], dxdy[...,0]) / np.pi).unsqueeze(-1)
+        dis = dxdy.norm(dim=-1, keepdim=True)
+
+        box_area = (xyxy_boxes[:, 2:] - xyxy_boxes[:, :2]).prod(dim=1) # areas
+        intersec_lt = torch.max(xyxy_boxes.unsqueeze(1)[...,:2], xyxy_boxes.unsqueeze(0)[...,:2])
+        intersec_rb = torch.min(xyxy_boxes.unsqueeze(1)[...,2:], xyxy_boxes.unsqueeze(0)[...,2:])
+        overlap = (intersec_rb - intersec_lt).clamp(min=0).prod(dim=-1, keepdim=True)
+        union_lt = torch.min(xyxy_boxes.unsqueeze(1)[...,:2], xyxy_boxes.unsqueeze(0)[...,:2])
+        union_rb = torch.max(xyxy_boxes.unsqueeze(1)[...,2:], xyxy_boxes.unsqueeze(0)[...,2:])
+        union = (union_rb - union_lt).clamp(min=0).prod(dim=-1, keepdim=True)
+        spatial_feats = torch.cat([
+            dxdy, dis, theta, # dx, dy, distance, theta
+            overlap, union, box_area[:,None,None].expand(*union.shape), box_area[None,:,None].expand(*union.shape) # overlap, union, subj, obj
+        ], dim=-1)
+        return spatial_feats
 
 
 def focal_loss(blogits, target_classes, alpha=0.25, gamma=2):
