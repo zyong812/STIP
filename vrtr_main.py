@@ -229,7 +229,7 @@ if __name__ == '__main__':
         parents=[get_args_parser()]
     )
     # specific settings
-    parser.add_argument('--test', default=1e-8, type=float)
+    parser.add_argument('--hard_negative_relation_sampling', action='store_true', default=False)
     args = parser.parse_args()
     args.VRTR_relation_head = True
 
