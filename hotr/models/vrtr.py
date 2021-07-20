@@ -183,7 +183,7 @@ class VRTRCriterion(nn.Module):
             all_rel_pair_targets.append(rel_pair_targets)
         all_rel_pair_targets = torch.stack(all_rel_pair_targets, dim=0)
 
-        rel_proposal_targets = (all_rel_pair_targets.sum(-1) > 0).float()
+        rel_proposal_targets = (all_rel_pair_targets[..., self.valid_ids].sum(-1) > 0).float()
         all_rel_pair_targets = torch.cat([all_rel_pair_targets, rel_proposal_targets.unsqueeze(-1)], dim=-1)
 
         # loss_proposal = F.binary_cross_entropy_with_logits(outputs['pred_action_exists'], rel_proposal_targets) # loss proposals
