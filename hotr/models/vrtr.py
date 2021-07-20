@@ -125,10 +125,12 @@ class VRTR(nn.Module):
                 sampled_rel_pred_exists = p_relation_exist_logits[sampled_rel_inds]
 
             # >>>>>>>>>>>> relation classification <<<<<<<<<<<<<<<
+            _, _, union_mask = self.generate_layout_masks(sampled_rel_pairs, features[-1], outputs_coord[imgid], idx=imgid)
             outs = self.interaction_decoder(tgt=self.rel_query_pre_proj(sampled_rel_reps).unsqueeze(1),
                                             memory=self.memory_input_proj(src[imgid:imgid+1]).flatten(2).permute(2,0,1),
+                                            memory_mask=union_mask.flatten(1),
                                             memory_key_padding_mask=mask[imgid:imgid+1].flatten(1),
-                                            pos=pos[-1][imgid:imgid+1].flatten(2).permute(2, 0, 1)) # todo: union mask, pos embedding etc.
+                                            pos=pos[-1][imgid:imgid+1].flatten(2).permute(2, 0, 1)) # todo: pos embedding etc.
             action_logits = self.action_embed(outs)
 
             pred_rel_pairs.append(sampled_rel_pairs)
@@ -154,6 +156,34 @@ class VRTR(nn.Module):
     @torch.jit.unused
     def _set_aux_loss_with_tgt(self, outputs_action):
         return [{'pred_actions': x} for x in outputs_action[:-1]]
+
+    def generate_layout_masks(self, rel_pairs, features, boxes, idx):
+        xyxy_boxes = box_ops.box_cxcywh_to_xyxy(boxes).clamp(0, 1)
+        head_boxes = xyxy_boxes[rel_pairs[:, 0]]
+        tail_boxes = xyxy_boxes[rel_pairs[:, 1]]
+        union_boxes = torch.cat([
+            torch.min(head_boxes[:,:2], tail_boxes[:,:2]),
+            torch.max(head_boxes[:,2:], tail_boxes[:,2:])
+        ], dim=1)
+
+        h, w = (~features.mask[idx]).nonzero(as_tuple=False).max(dim=0)[0] + 1 # mask: image area=False, pad area=True
+        scaled_head_boxes = head_boxes * torch.tensor([w,h,w,h]).to(device=head_boxes.device, dtype=head_boxes.dtype).unsqueeze(0)
+        scaled_tail_boxes = tail_boxes * torch.tensor([w,h,w,h]).to(device=tail_boxes.device, dtype=tail_boxes.dtype).unsqueeze(0)
+        scaled_union_boxes = union_boxes * torch.tensor([w,h,w,h]).to(device=union_boxes.device, dtype=union_boxes.dtype).unsqueeze(0)
+
+        # build masks: hit region=False, other region=True
+        rel_head_mask = torch.ones_like(features.mask[idx]).unsqueeze(0).repeat((len(rel_pairs), 1, 1))
+        rel_tail_mask = torch.ones_like(features.mask[idx]).unsqueeze(0).repeat((len(rel_pairs), 1, 1))
+        rel_union_mask = torch.ones_like(features.mask[idx]).unsqueeze(0).repeat((len(rel_pairs), 1, 1))
+        for rid in range(len(rel_union_mask)):
+            rel_head_mask[rid, int(scaled_head_boxes[rid,1].floor()):int(scaled_head_boxes[rid,3].ceil()),
+                               int(scaled_head_boxes[rid,0].floor()):int(scaled_head_boxes[rid,2].ceil())] = False
+            rel_tail_mask[rid, int(scaled_tail_boxes[rid,1].floor()):int(scaled_tail_boxes[rid,3].ceil()),
+                               int(scaled_tail_boxes[rid,0].floor()):int(scaled_tail_boxes[rid,2].ceil())] = False
+            rel_union_mask[rid, int(scaled_union_boxes[rid,1].floor()):int(scaled_union_boxes[rid,3].ceil()),
+                                int(scaled_union_boxes[rid,0].floor()):int(scaled_union_boxes[rid,2].ceil())] = False
+
+        return rel_head_mask, rel_tail_mask, rel_union_mask
 
 class VRTRCriterion(nn.Module):
     """ This class computes the loss for VRTR.
@@ -284,7 +314,6 @@ class VRTRPostProcess(nn.Module):
 
         return results
 
-
 class RelationFeatureExtractor(nn.Module):
     def __init__(self, in_channels, resolution=7, out_dim=1024):
         super(RelationFeatureExtractor, self).__init__()
@@ -318,7 +347,7 @@ class RelationFeatureExtractor(nn.Module):
             rel_pairs: Nx2
         """
         # union feature
-        xyxy_boxes = box_ops.box_cxcywh_to_xyxy(boxes)
+        xyxy_boxes = box_ops.box_cxcywh_to_xyxy(boxes).clamp(0, 1)
         head_boxes = xyxy_boxes[rel_pairs[:, 0]]
         tail_boxes = xyxy_boxes[rel_pairs[:, 1]]
         union_boxes = torch.cat([
@@ -327,7 +356,7 @@ class RelationFeatureExtractor(nn.Module):
         ], dim=1)
 
         # H, W = features.tensors.shape[-2:] # stacked image size
-        h, w = (~features.mask[idx]).nonzero(as_tuple=False).max(dim=0)[0] + 1 # image area
+        h, w = (~features.mask[idx]).nonzero(as_tuple=False).max(dim=0)[0] + 1 # mask: image area=False, pad area=True
         proj_feature = self.input_proj(features.tensors[idx:idx+1])
         scaled_union_boxes = torch.cat(
             [
