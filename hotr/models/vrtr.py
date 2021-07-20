@@ -151,7 +151,7 @@ class VRTRCriterion(nn.Module):
         self.args = args
         self.matcher = matcher
         self.weight_dict = {
-            'loss_proposal': 5,
+            'loss_proposal': 1,
             'loss_act': 1
         }
         if args.hoi_aux_loss:
@@ -186,7 +186,8 @@ class VRTRCriterion(nn.Module):
         rel_proposal_targets = (all_rel_pair_targets.sum(-1) > 0).float()
         all_rel_pair_targets = torch.cat([all_rel_pair_targets, rel_proposal_targets.unsqueeze(-1)], dim=-1)
 
-        loss_proposal = F.binary_cross_entropy_with_logits(outputs['pred_action_exists'], rel_proposal_targets) # loss proposals
+        # loss_proposal = F.binary_cross_entropy_with_logits(outputs['pred_action_exists'], rel_proposal_targets) # loss proposals
+        loss_proposal = focal_loss(outputs['pred_action_exists'], rel_proposal_targets) # loss proposals
         loss_action = focal_loss(outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids]) # loss action classification
 
         loss_dict = {'loss_proposal': loss_proposal, 'loss_act': loss_action}
