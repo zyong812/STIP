@@ -263,7 +263,8 @@ class VRTRPostProcess(nn.Module):
         boxes = boxes * scale_fct[:, None, :]
 
         # for relationship post-processing
-        pair_actions = outputs['pred_actions'].sigmoid() * outputs['pred_action_exists'].sigmoid().unsqueeze(-1)
+        pair_actions = outputs['pred_actions'].sigmoid()
+        pair_actions[..., -1] = (pair_actions[..., -1] + outputs['pred_action_exists'].sigmoid())/2 # interactiveness score
         h_indices = outputs['pred_rel_pairs'][:,:,0]
         o_indices = outputs['pred_rel_pairs'][:,:,1]
 
@@ -289,19 +290,10 @@ class VRTRPostProcess(nn.Module):
             K = boxes.shape[1]
             n_act = pair_actions[batch_idx][:, :-1].shape[-1]
             score = torch.zeros((n_act, K, K+1)).to(pair_actions[batch_idx].device)
-            sorted_score = torch.zeros((n_act, K, K+1)).to(pair_actions[batch_idx].device)
-            id_score = torch.zeros((K, K+1)).to(pair_actions[batch_idx].device)
-
-            # Score function: 所有 query 的结果加起来. 为什么要这么排序？
             for h_idx, o_idx, pair_action in zip(h_indices[batch_idx], o_indices[batch_idx], pair_actions[batch_idx]):
-                matching_score = (1-pair_action[-1]) # no interaction score
                 if h_idx == o_idx: o_idx = -1 # 特殊情况处理，主语和宾语相同
-                if matching_score > id_score[h_idx, o_idx]:
-                    id_score[h_idx, o_idx] = matching_score
-                    sorted_score[:, h_idx, o_idx] = matching_score * pair_action[:-1]
-                score[:, h_idx, o_idx] += matching_score * pair_action[:-1]
+                score[:, h_idx, o_idx] = pair_action[-1] * pair_action[:-1]
 
-            score += sorted_score
             score = score[:, h_inds, :]
             score = score[:, :, o_inds]
 

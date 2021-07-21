@@ -158,9 +158,9 @@ class SetCriterion(nn.Module):
         # Construct Target --------------------------------------------------------------------------------------------------------------
         target_classes_o = torch.cat([t["pair_actions"][J] for t, (_, J) in zip(targets, hoi_indices)])
         target_classes = torch.full(src_actions.shape, 0, dtype=torch.float32, device=src_actions.device)
-        target_classes[..., -1] = 1 # the last index for no-interaction is '1' if a label exists
+        target_classes[..., -1] = 1 # the last index for no-interaction is '1'
 
-        pos_classes = torch.full(target_classes[idx].shape, 0, dtype=torch.float32, device=src_actions.device) # else, the last index for no-interaction is '0'
+        pos_classes = torch.full(target_classes[idx].shape, 0, dtype=torch.float32, device=src_actions.device) # if a label exists, the last index for no-interaction is '0'
         pos_classes[:, :-1] = target_classes_o.float()
         target_classes[idx] = pos_classes
         # --------------------------------------------------------------------------------------------------------------------------------
