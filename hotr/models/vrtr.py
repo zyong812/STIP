@@ -37,7 +37,11 @@ class VRTR(nn.Module):
         )
 
         # relation classification
-        self.memory_input_proj = nn.Conv2d(backbone_out_ch, self.args.hidden_dim, kernel_size=1)
+        if args.use_high_resolution_relation_feature_map:
+            memory_input_dim = 1024
+        else:
+            memory_input_dim = backbone_out_ch
+        self.memory_input_proj = nn.Conv2d(memory_input_dim, self.args.hidden_dim, kernel_size=1)
         self.rel_query_pre_proj = make_fc(rel_rep_dim, self.args.hidden_dim)
 
         decoder_layer = TransformerDecoderLayer(d_model=self.args.hidden_dim, nhead=self.args.hoi_nheads)
@@ -78,6 +82,9 @@ class VRTR(nn.Module):
 
         # >>>>>>>>>>>> HOI DETECTION LAYERS <<<<<<<<<<<<<<<
         pred_rel_exists, pred_rel_pairs, pred_actions = [], [], []
+        memory_input, memory_input_mask = features[0].decompose()
+        memory_pos = pos[0]
+
         for imgid in range(bs):
             # >>>>>>>>>>>> relation proposal <<<<<<<<<<<<<<<
             inst_labels = outputs_class[imgid].max(-1)[-1]
@@ -125,12 +132,12 @@ class VRTR(nn.Module):
                 sampled_rel_pred_exists = p_relation_exist_logits[sampled_rel_inds]
 
             # >>>>>>>>>>>> relation classification <<<<<<<<<<<<<<<
-            _, _, union_mask = self.generate_layout_masks(sampled_rel_pairs, features[-1], outputs_coord[imgid], idx=imgid)
+            _, _, union_mask = self.generate_layout_masks(sampled_rel_pairs, memory_input_mask, outputs_coord[imgid], idx=imgid)
             outs = self.interaction_decoder(tgt=self.rel_query_pre_proj(sampled_rel_reps).unsqueeze(1),
-                                            memory=self.memory_input_proj(src[imgid:imgid+1]).flatten(2).permute(2,0,1),
+                                            memory=self.memory_input_proj(memory_input[imgid:imgid+1]).flatten(2).permute(2,0,1),
                                             memory_mask=union_mask.flatten(1),
-                                            memory_key_padding_mask=mask[imgid:imgid+1].flatten(1),
-                                            pos=pos[-1][imgid:imgid+1].flatten(2).permute(2, 0, 1)) # todo: pos embedding etc.
+                                            memory_key_padding_mask=memory_input_mask[imgid:imgid+1].flatten(1),
+                                            pos=memory_pos[imgid:imgid+1].flatten(2).permute(2, 0, 1)) # todo: pos embedding etc.
             action_logits = self.action_embed(outs)
 
             pred_rel_pairs.append(sampled_rel_pairs)
@@ -157,7 +164,7 @@ class VRTR(nn.Module):
     def _set_aux_loss_with_tgt(self, outputs_action):
         return [{'pred_actions': x} for x in outputs_action[:-1]]
 
-    def generate_layout_masks(self, rel_pairs, features, boxes, idx):
+    def generate_layout_masks(self, rel_pairs, feature_masks, boxes, idx):
         xyxy_boxes = box_ops.box_cxcywh_to_xyxy(boxes).clamp(0, 1)
         head_boxes = xyxy_boxes[rel_pairs[:, 0]]
         tail_boxes = xyxy_boxes[rel_pairs[:, 1]]
@@ -166,15 +173,15 @@ class VRTR(nn.Module):
             torch.max(head_boxes[:,2:], tail_boxes[:,2:])
         ], dim=1)
 
-        h, w = (~features.mask[idx]).nonzero(as_tuple=False).max(dim=0)[0] + 1 # mask: image area=False, pad area=True
+        h, w = (~feature_masks[idx]).nonzero(as_tuple=False).max(dim=0)[0] + 1 # mask: image area=False, pad area=True
         scaled_head_boxes = head_boxes * torch.tensor([w,h,w,h]).to(device=head_boxes.device, dtype=head_boxes.dtype).unsqueeze(0)
         scaled_tail_boxes = tail_boxes * torch.tensor([w,h,w,h]).to(device=tail_boxes.device, dtype=tail_boxes.dtype).unsqueeze(0)
         scaled_union_boxes = union_boxes * torch.tensor([w,h,w,h]).to(device=union_boxes.device, dtype=union_boxes.dtype).unsqueeze(0)
 
         # build masks: hit region=False, other region=True
-        rel_head_mask = torch.ones_like(features.mask[idx]).unsqueeze(0).repeat((len(rel_pairs), 1, 1))
-        rel_tail_mask = torch.ones_like(features.mask[idx]).unsqueeze(0).repeat((len(rel_pairs), 1, 1))
-        rel_union_mask = torch.ones_like(features.mask[idx]).unsqueeze(0).repeat((len(rel_pairs), 1, 1))
+        rel_head_mask = torch.ones_like(feature_masks[idx]).unsqueeze(0).repeat((len(rel_pairs), 1, 1))
+        rel_tail_mask = torch.ones_like(feature_masks[idx]).unsqueeze(0).repeat((len(rel_pairs), 1, 1))
+        rel_union_mask = torch.ones_like(feature_masks[idx]).unsqueeze(0).repeat((len(rel_pairs), 1, 1))
         for rid in range(len(rel_union_mask)):
             rel_head_mask[rid, int(scaled_head_boxes[rid,1].floor()):int(scaled_head_boxes[rid,3].ceil()),
                                int(scaled_head_boxes[rid,0].floor()):int(scaled_head_boxes[rid,2].ceil())] = False

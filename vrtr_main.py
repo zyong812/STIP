@@ -233,6 +233,7 @@ if __name__ == '__main__':
     )
     # specific settings
     parser.add_argument('--hard_negative_relation_sampling', action='store_true', default=False)
+    parser.add_argument('--use_high_resolution_relation_feature_map', action='store_true', default=False)
     args = parser.parse_args()
     args.VRTR_relation_head = True
 
