@@ -111,7 +111,7 @@ def main(args):
     ]
     optimizer = torch.optim.AdamW(param_dicts, lr=args.lr, weight_decay=args.weight_decay)
     # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
-    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.2, patience=1, verbose=True)
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=args.reduce_lr_on_plateau_factor, patience=args.reduce_lr_on_plateau_patience, verbose=True)
 
     # Weight Setup
     if args.frozen_weights is not None:
@@ -234,6 +234,8 @@ if __name__ == '__main__':
     # specific settings
     parser.add_argument('--hard_negative_relation_sampling', action='store_true', default=False)
     parser.add_argument('--use_high_resolution_relation_feature_map', action='store_true', default=False)
+    parser.add_argument('--reduce_lr_on_plateau_patience', default=1, type=int)
+    parser.add_argument('--reduce_lr_on_plateau_factor', default=0.2, type=float)
     args = parser.parse_args()
     args.VRTR_relation_head = True
 
