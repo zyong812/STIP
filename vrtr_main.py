@@ -110,8 +110,8 @@ def main(args):
         },
     ]
     optimizer = torch.optim.AdamW(param_dicts, lr=args.lr, weight_decay=args.weight_decay)
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
-
+    # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.1, patience=2, verbose=True)
 
     # Weight Setup
     if args.frozen_weights is not None:
@@ -176,10 +176,11 @@ def main(args):
         train_stats = train_one_epoch(
             model, criterion, data_loader_train, optimizer, device, epoch, args.epochs,
             args.clip_max_norm, dataset_file=args.dataset_file, log=args.wandb)
-        lr_scheduler.step()
+
+        if isinstance(lr_scheduler, torch.optim.lr_scheduler.StepLR): lr_scheduler.step()
 
         # Validation
-        if args.validate and epoch%5==0:
+        if args.validate:
             print('-'*100)
             if args.dataset_file == 'vcoco':
                 total_res = hoi_evaluator(args, model, criterion, postprocessors, data_loader_val, device)
@@ -191,6 +192,7 @@ def main(args):
                         save_ckpt(args, model_without_ddp, optimizer, lr_scheduler, epoch, filename='best')
                     print(f'| Scenario #1 mAP : {sc1:.2f} ({scenario1:.2f})')
                     print(f'| Scenario #2 mAP : {sc2:.2f} ({scenario2:.2f})')
+                    if isinstance(lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau): lr_scheduler.step(sc1)
             elif args.dataset_file == 'hico-det':
                 test_stats = hoi_evaluator(args, model, None, postprocessors, data_loader_val, device)
                 if utils.get_rank() == 0:
@@ -206,9 +208,10 @@ def main(args):
                         wandb.log({
                             'mAP': test_stats['mAP']
                         })
+                    if isinstance(lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau): lr_scheduler.step(test_stats['mAP'])
             print('-'*100)
 
-        if epoch%5==0:
+        if epoch%10==0:
             save_ckpt(args, model_without_ddp, optimizer, lr_scheduler, epoch, filename=f'checkpoint_{epoch}')
 
     total_time = time.time() - start_time
