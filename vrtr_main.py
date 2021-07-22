@@ -233,6 +233,8 @@ if __name__ == '__main__':
     )
     # specific settings
     parser.add_argument('--hard_negative_relation_sampling', action='store_true', default=False)
+    parser.add_argument('--use_memory_union_mask', action='store_true', default=False)
+    parser.add_argument('--use_memory_role_embedding', action='store_true', default=False)
     parser.add_argument('--use_high_resolution_relation_feature_map', action='store_true', default=False)
     parser.add_argument('--reduce_lr_on_plateau_patience', default=1, type=int)
     parser.add_argument('--reduce_lr_on_plateau_factor', default=0.2, type=float)

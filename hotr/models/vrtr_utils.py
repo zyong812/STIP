@@ -29,7 +29,8 @@ def multi_head_attention_forward_with_role(query,                 # type: Tensor
                                  k_proj_weight=None,              # type: Optional[Tensor]
                                  v_proj_weight=None,              # type: Optional[Tensor]
                                  static_k=None,                   # type: Optional[Tensor]
-                                 static_v=None                    # type: Optional[Tensor]
+                                 static_v=None,                   # type: Optional[Tensor]
+                                 memory_role_embedding=None       # type: Optional[Tensor]
                                  ):
     # type: (...) -> Tuple[Tensor, Optional[Tensor]]
     r"""
@@ -262,6 +263,11 @@ def multi_head_attention_forward_with_role(query,                 # type: Tensor
             key_padding_mask = pad(key_padding_mask, (0, 1))
 
     attn_output_weights = torch.bmm(q, k.transpose(1, 2))
+    if memory_role_embedding is not None: # todo: check normalize & scaling
+        memory_len = memory_role_embedding.shape[1]
+        r = memory_role_embedding.view(tgt_len, memory_len, bsz * num_heads, head_dim) * scaling
+        r = r.permute(2,0,1,3).contiguous() # (#heads, #query, #memory, #dim)
+        attn_output_weights += torch.matmul(q.unsqueeze(2), r.transpose(3,2)).squeeze()
     assert list(attn_output_weights.size()) == [bsz * num_heads, tgt_len, src_len]
 
     if attn_mask is not None:
@@ -392,7 +398,7 @@ class MultiheadAttention(torch.nn.Module):
         super(MultiheadAttention, self).__setstate__(state)
 
     def forward(self, query, key, value, key_padding_mask=None,
-                need_weights=True, attn_mask=None):
+                need_weights=True, attn_mask=None, memory_role_embedding=None):
         # type: (Tensor, Tensor, Tensor, Optional[Tensor], bool, Optional[Tensor]) -> Tuple[Tensor, Optional[Tensor]]
         r"""
     Args:
@@ -433,6 +439,7 @@ class MultiheadAttention(torch.nn.Module):
         - attn_output_weights: :math:`(N, L, S)` where N is the batch size,
           L is the target sequence length, S is the source sequence length.
         """
+
         return multi_head_attention_forward_with_role(
             query, key, value, self.embed_dim, self.num_heads,
             self.in_proj_weight, self.in_proj_bias,
@@ -440,5 +447,6 @@ class MultiheadAttention(torch.nn.Module):
             self.dropout, self.out_proj.weight, self.out_proj.bias,
             training=self.training,
             key_padding_mask=key_padding_mask, need_weights=need_weights,
-            attn_mask=attn_mask
+            attn_mask=attn_mask,
+            memory_role_embedding=memory_role_embedding
         )
