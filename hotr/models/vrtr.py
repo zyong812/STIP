@@ -271,11 +271,10 @@ class VRTRPostProcess(nn.Module):
 
         # for relationship post-processing
         pair_actions = outputs['pred_actions'].sigmoid()
-        pair_actions[..., -1] = (pair_actions[..., -1] + outputs['pred_action_exists'].sigmoid())/2 # interactiveness score
+        pair_actions[..., -1] = (pair_actions[..., -1] * outputs['pred_action_exists'].sigmoid()).sqrt() # interactiveness score
         h_indices = outputs['pred_rel_pairs'][:,:,0]
         o_indices = outputs['pred_rel_pairs'][:,:,1]
 
-        # 和 HOTR 保持一致的排序方式 (todo: 我们方法该怎么更加合理排序)
         results = []
         for batch_idx, (s, l, b)  in enumerate(zip(scores, labels, boxes)):
             h_inds = (l == 1) & (s > threshold)
@@ -299,7 +298,8 @@ class VRTRPostProcess(nn.Module):
             score = torch.zeros((n_act, K, K+1)).to(pair_actions[batch_idx].device)
             for h_idx, o_idx, pair_action in zip(h_indices[batch_idx], o_indices[batch_idx], pair_actions[batch_idx]):
                 if h_idx == o_idx: o_idx = -1 # 特殊情况处理，主语和宾语相同
-                score[:, h_idx, o_idx] = pair_action[-1] * pair_action[:-1]
+                # score[:, h_idx, o_idx] = pair_action[-1] * pair_action[:-1]
+                score[:, h_idx, o_idx] = pair_action[:-1] # 类似于主流目标检测器的做法
 
             score = score[:, h_inds, :]
             score = score[:, :, o_inds]
