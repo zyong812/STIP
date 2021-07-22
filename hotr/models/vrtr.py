@@ -78,7 +78,7 @@ class VRTR(nn.Module):
                 gt2det_map = torch.zeros(len(gs)).to(device=ds.device, dtype=ds.dtype)
                 gt2det_map[gs] = ds
                 gt_rel_pairs.append(gt2det_map[t['relation_map'].sum(-1).nonzero(as_tuple=False)])
-                if len(gt_rel_pairs[-1]) > self.args.num_hoi_queries: print(t['image_id'])
+                if len(gt_rel_pairs[-1]) > self.args.num_hoi_queries: print(f"imageid={t['image_id']}, gt_relation_count={len(gt_rel_pairs[-1])}")
 
         # >>>>>>>>>>>> HOI DETECTION LAYERS <<<<<<<<<<<<<<<
         pred_rel_exists, pred_rel_pairs, pred_actions = [], [], []
@@ -119,8 +119,7 @@ class VRTR(nn.Module):
             else:
                 rel_pairs = rel_mat.nonzero(as_tuple=False)
                 if len(rel_pairs) == 0:
-                    print('xxxx')
-                    rel_pairs = (rel_mat == 0).nonzero(as_tuple=False) # todo: ??
+                    rel_pairs = (rel_mat == 0).nonzero(as_tuple=False) # just placeholders
                 rel_reps = self.union_box_feature_extractor(rel_pairs, features[-1], outputs_coord[imgid], inst_repr[imgid], idx=imgid)
                 p_relation_exist_logits = self.relation_proposal_mlp(rel_reps).squeeze()
 
