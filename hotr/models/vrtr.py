@@ -288,46 +288,81 @@ class VRTRPostProcess(nn.Module):
         boxes = boxes * scale_fct[:, None, :]
 
         # for relationship post-processing
-        pair_actions = outputs['pred_actions'].sigmoid()
-        pair_actions[..., -1] = (pair_actions[..., -1] * outputs['pred_action_exists'].sigmoid()).sqrt() # interactiveness score
         h_indices = outputs['pred_rel_pairs'][:,:,0]
         o_indices = outputs['pred_rel_pairs'][:,:,1]
+        if dataset == 'vcoco':
+            pair_actions = outputs['pred_actions'].sigmoid()
+            pair_actions[..., -1] = (pair_actions[..., -1] * outputs['pred_action_exists'].sigmoid()).sqrt() # interactiveness score
 
-        results = []
-        for batch_idx, (s, l, b)  in enumerate(zip(scores, labels, boxes)):
-            h_inds = (l == 1) & (s > threshold)
-            o_inds = (s > threshold)
+            results = []
+            for batch_idx, (s, l, b)  in enumerate(zip(scores, labels, boxes)):
+                h_inds = (l == 1) & (s > threshold)
+                o_inds = (s > threshold)
 
-            h_box, h_cat = b[h_inds], s[h_inds]
-            o_box, o_cat = b[o_inds], s[o_inds]
+                h_box, h_cat = b[h_inds], s[h_inds]
+                o_box, o_cat = b[o_inds], s[o_inds]
 
-            # for scenario 1 in v-coco dataset
-            o_inds = torch.cat((o_inds, torch.ones(1).type(torch.bool).to(o_inds.device)))
-            o_box = torch.cat((o_box, torch.Tensor([0, 0, 0, 0]).unsqueeze(0).to(o_box.device))) # 增加一个空的 box
+                # for scenario 1 in v-coco dataset
+                o_inds = torch.cat((o_inds, torch.ones(1).type(torch.bool).to(o_inds.device)))
+                o_box = torch.cat((o_box, torch.Tensor([0, 0, 0, 0]).unsqueeze(0).to(o_box.device))) # 增加一个空的 box
 
-            result_dict = {
-                'h_box': h_box, 'h_cat': h_cat,
-                'o_box': o_box, 'o_cat': o_cat,
-                'scores': s, 'labels': l, 'boxes': b
-            }
+                result_dict = {
+                    'h_box': h_box, 'h_cat': h_cat,
+                    'o_box': o_box, 'o_cat': o_cat,
+                    'scores': s, 'labels': l, 'boxes': b
+                }
 
-            K = boxes.shape[1]
-            n_act = pair_actions[batch_idx][:, :-1].shape[-1]
-            score = torch.zeros((n_act, K, K+1)).to(pair_actions[batch_idx].device)
-            for h_idx, o_idx, pair_action in zip(h_indices[batch_idx], o_indices[batch_idx], pair_actions[batch_idx]):
-                if h_idx == o_idx: o_idx = -1 # 特殊情况处理，主语和宾语相同
-                # score[:, h_idx, o_idx] = pair_action[-1] * pair_action[:-1]
-                score[:, h_idx, o_idx] = pair_action[:-1] # 类似于主流目标检测器的做法
+                K = boxes.shape[1]
+                n_act = pair_actions[batch_idx][:, :-1].shape[-1]
+                score = torch.zeros((n_act, K, K+1)).to(pair_actions[batch_idx].device)
+                for h_idx, o_idx, pair_action in zip(h_indices[batch_idx], o_indices[batch_idx], pair_actions[batch_idx]):
+                    if h_idx == o_idx: o_idx = -1 # 特殊情况处理，主语和宾语相同
+                    # score[:, h_idx, o_idx] = pair_action[-1] * pair_action[:-1]
+                    score[:, h_idx, o_idx] = pair_action[:-1] # 类似于主流目标检测器的做法
 
-            score = score[:, h_inds, :]
-            score = score[:, :, o_inds]
+                score = score[:, h_inds, :]
+                score = score[:, :, o_inds]
 
-            result_dict.update({
-                'pair_score': score,
-                'hoi_recognition_time': 0,
-            })
+                result_dict.update({
+                    'pair_score': score,
+                    'hoi_recognition_time': 0,
+                })
 
-            results.append(result_dict)
+                results.append(result_dict)
+        elif dataset == 'hico-det':
+            # tail classification score
+            _valid_obj_ids = self.args.valid_obj_ids + [self.args.valid_obj_ids[-1]+1]
+            out_obj_logits = outputs['pred_logits'][..., _valid_obj_ids]
+            out_obj_logits = torch.stack([lgts[o_ids] for o_ids, lgts in zip(o_indices, out_obj_logits)], dim=0)
+            out_verb_logits = outputs['pred_actions']
+            obj_scores, obj_labels = F.softmax(out_obj_logits, -1)[..., :-1].max(-1)
+
+            # actions
+            interactiveness = (out_verb_logits.sigmoid()[..., -1] * outputs['pred_action_exists'].sigmoid()).unsqueeze(-1)
+            verb_scores = out_verb_logits.sigmoid()[..., :-1] # * interactiveness # todo: without using interactiveness
+
+            # accumulate results (iterate through interaction queries)
+            results = []
+            for batch_idx, (os, ol, vs, box, h_idx, o_idx) in enumerate(zip(obj_scores, obj_labels, verb_scores, boxes, h_indices, o_indices)):
+                # label
+                sl = torch.full_like(ol, 0) # self.subject_category_id = 0 in HICO-DET. todo: filter subj not human
+                l = torch.cat((sl, ol))
+                # boxes
+                sb = box[h_idx, :]
+                ob = box[o_idx, :]
+                b = torch.cat((sb, ob))
+
+                vs = vs * os.unsqueeze(1)
+                ids = torch.arange(b.shape[0])
+                res_dict = {
+                    'labels': l.to('cpu'),
+                    'boxes': b.to('cpu'),
+                    'verb_scores': vs.to('cpu'),
+                    'sub_ids': ids[:ids.shape[0] // 2],
+                    'obj_ids': ids[ids.shape[0] // 2:],
+                    'hoi_recognition_time': 0
+                }
+                results.append(res_dict)
 
         return results
 
