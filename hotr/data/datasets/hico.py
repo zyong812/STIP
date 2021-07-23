@@ -121,7 +121,7 @@ class HICODetection(torch.utils.data.Dataset):
                 if hoi['subject_id'] not in kept_box_indices or hoi['object_id'] not in kept_box_indices:
                     continue
                 sub_obj_pair = (hoi['subject_id'], hoi['object_id'])
-                if sub_obj_pair in sub_obj_pairs:
+                if sub_obj_pair in sub_obj_pairs: # 多个标签
                     verb_labels[sub_obj_pairs.index(sub_obj_pair)][self._valid_verb_ids.index(hoi['category_id'])] = 1
                 else:
                     sub_obj_pairs.append(sub_obj_pair)
@@ -143,6 +143,14 @@ class HICODetection(torch.utils.data.Dataset):
                 target['pair_actions'] = torch.as_tensor(verb_labels, dtype=torch.float32)
                 target['sub_boxes'] = torch.stack(sub_boxes)
                 target['obj_boxes'] = torch.stack(obj_boxes)
+
+            # relation map
+            relation_map = torch.zeros((len(target['boxes']), len(target['boxes']), self.num_action()))
+            for sub_obj_pair in sub_obj_pairs:
+                kept_subj_id = kept_box_indices.index(sub_obj_pair[0])
+                kept_obj_id = kept_box_indices.index(sub_obj_pair[1])
+                relation_map[kept_subj_id, kept_obj_id] = torch.tensor(verb_labels[sub_obj_pairs.index(sub_obj_pair)])
+            target['relation_map'] = relation_map
         else:
             target['boxes'] = boxes
             target['labels'] = classes
@@ -156,6 +164,7 @@ class HICODetection(torch.utils.data.Dataset):
                 hois.append((hoi['subject_id'], hoi['object_id'], self._valid_verb_ids.index(hoi['category_id'])))
             target['hois'] = torch.as_tensor(hois, dtype=torch.int64)
 
+        target['image_id'] = torch.tensor(idx)
         return img, target
 
     def set_rare_hois(self, anno_file):

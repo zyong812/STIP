@@ -99,6 +99,8 @@ class VRTR(nn.Module):
                 rel_mat[gt_rel_pairs[imgid][:,0].unique()] = 1
                 rel_mat[gt_rel_pairs[imgid][:,0], gt_rel_pairs[imgid][:, 1]] = 0
                 rel_pairs = rel_mat.nonzero(as_tuple=False) # neg pairs
+                if len(rel_pairs) == 0: # when no rel sampled
+                    rel_pairs = (rel_mat == 0).nonzero(as_tuple=False) # just placeholders
 
                 if self.args.hard_negative_relation_sampling:
                     # hard negative sampling
@@ -225,6 +227,9 @@ class VRTRCriterion(nn.Module):
         if args.dataset_file == 'vcoco':
             self.invalid_ids = args.invalid_ids
             self.valid_ids = np.concatenate((args.valid_ids,[-1]), axis=0) # no interaction
+        elif args.dataset_file == 'hico-det':
+            self.invalid_ids = []
+            self.valid_ids = list(range(self.args.num_actions)) + [-1]
 
     def forward(self, outputs, targets, log=False):
         # instance matching
