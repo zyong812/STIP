@@ -51,7 +51,7 @@ class VRTR(nn.Module):
         decoder_layer = TransformerDecoderLayer(d_model=self.args.hidden_dim, nhead=self.args.hoi_nheads)
         decoder_norm = nn.LayerNorm(self.args.hidden_dim)
         self.interaction_decoder = TransformerDecoder(decoder_layer, self.args.hoi_dec_layers, decoder_norm, return_intermediate=True)
-        self.action_embed = nn.Linear(self.args.hidden_dim, self.args.num_actions+1)
+        self.action_embed = nn.Linear(self.args.hidden_dim, self.args.num_actions)
 
     def forward(self, samples: NestedTensor, targets=None):
         if isinstance(samples, (list, torch.Tensor)):
@@ -226,10 +226,10 @@ class VRTRCriterion(nn.Module):
 
         if args.dataset_file == 'vcoco':
             self.invalid_ids = args.invalid_ids
-            self.valid_ids = np.concatenate((args.valid_ids,[-1]), axis=0) # no interaction
+            self.valid_ids = args.valid_ids
         elif args.dataset_file == 'hico-det':
             self.invalid_ids = []
-            self.valid_ids = list(range(self.args.num_actions)) + [-1]
+            self.valid_ids = list(range(self.args.num_actions))
 
     def forward(self, outputs, targets, log=False):
         # instance matching
@@ -253,7 +253,6 @@ class VRTRCriterion(nn.Module):
         all_rel_pair_targets = torch.stack(all_rel_pair_targets, dim=0)
 
         rel_proposal_targets = (all_rel_pair_targets[..., self.valid_ids].sum(-1) > 0).float()
-        all_rel_pair_targets = torch.cat([all_rel_pair_targets, rel_proposal_targets.unsqueeze(-1)], dim=-1)
 
         # loss_proposal = F.binary_cross_entropy_with_logits(outputs['pred_action_exists'], rel_proposal_targets) # loss proposals
         loss_proposal = focal_loss(outputs['pred_action_exists'], rel_proposal_targets) # loss proposals
@@ -292,7 +291,7 @@ class VRTRPostProcess(nn.Module):
         o_indices = outputs['pred_rel_pairs'][:,:,1]
         if dataset == 'vcoco':
             pair_actions = outputs['pred_actions'].sigmoid()
-            pair_actions[..., -1] = (pair_actions[..., -1] * outputs['pred_action_exists'].sigmoid()).sqrt() # interactiveness score
+            # pair_actions = outputs['pred_actions'].sigmoid() * outputs['pred_action_exists'].sigmoid() # cls_score ＊　interactiveness score
 
             results = []
             for batch_idx, (s, l, b)  in enumerate(zip(scores, labels, boxes)):
@@ -313,12 +312,11 @@ class VRTRPostProcess(nn.Module):
                 }
 
                 K = boxes.shape[1]
-                n_act = pair_actions[batch_idx][:, :-1].shape[-1]
+                n_act = pair_actions[batch_idx].shape[-1]
                 score = torch.zeros((n_act, K, K+1)).to(pair_actions[batch_idx].device)
                 for h_idx, o_idx, pair_action in zip(h_indices[batch_idx], o_indices[batch_idx], pair_actions[batch_idx]):
                     if h_idx == o_idx: o_idx = -1 # 特殊情况处理，主语和宾语相同
-                    # score[:, h_idx, o_idx] = pair_action[-1] * pair_action[:-1]
-                    score[:, h_idx, o_idx] = pair_action[:-1] # 类似于主流目标检测器的做法
+                    score[:, h_idx, o_idx] = pair_action # 类似主流目标检测器的做法
 
                 score = score[:, h_inds, :]
                 score = score[:, :, o_inds]
@@ -338,8 +336,8 @@ class VRTRPostProcess(nn.Module):
             obj_scores, obj_labels = F.softmax(out_obj_logits, -1)[..., :-1].max(-1)
 
             # actions
-            interactiveness = (out_verb_logits.sigmoid()[..., -1] * outputs['pred_action_exists'].sigmoid()).unsqueeze(-1)
-            verb_scores = out_verb_logits.sigmoid()[..., :-1] # * interactiveness # todo: without using interactiveness
+            verb_scores = out_verb_logits.sigmoid()
+            # verb_scores = out_verb_logits.sigmoid() * outputs['pred_action_exists'].sigmoid() # interactiveness
 
             # accumulate results (iterate through interaction queries)
             results = []

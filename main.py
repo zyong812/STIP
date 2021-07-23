@@ -175,7 +175,8 @@ def main(args):
         lr_scheduler.step()
 
         # Validation
-        if args.validate and epoch%5==0:
+        # if args.validate and epoch%5==0:
+        if args.validate:
             print('-'*100)
             if args.dataset_file == 'vcoco':
                 total_res = hoi_evaluator(args, model, criterion, postprocessors, data_loader_val, device)
