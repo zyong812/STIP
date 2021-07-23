@@ -93,7 +93,7 @@ class VRTR(nn.Module):
             # >>>>>>>>>>>> relation proposal <<<<<<<<<<<<<<<
             inst_labels = outputs_class[imgid].max(-1)[-1]
             rel_mat = torch.zeros((num_nodes, num_nodes))
-            rel_mat[inst_labels==1] = 1
+            rel_mat[inst_labels==1] = 1 # subj is human
 
             if self.training:
                 rel_mat[gt_rel_pairs[imgid][:,0].unique()] = 1
