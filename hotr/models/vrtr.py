@@ -254,14 +254,14 @@ class VRTRCriterion(nn.Module):
 
         rel_proposal_targets = (all_rel_pair_targets[..., self.valid_ids].sum(-1) > 0).float()
 
-        # loss_proposal = F.binary_cross_entropy_with_logits(outputs['pred_action_exists'], rel_proposal_targets) # loss proposals
-        loss_proposal = focal_loss(outputs['pred_action_exists'], rel_proposal_targets) # loss proposals
-        loss_action = focal_loss(outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids]) # loss action classification
+        # loss_proposal = F.binary_cross_entropy_with_logits(outputs['pred_action_exists'], rel_proposal_targets)
+        loss_proposal = focal_loss(outputs['pred_action_exists'], rel_proposal_targets, gamma=self.args.proposal_focal_loss_gamma) # loss proposals
+        loss_action = focal_loss(outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], gamma=self.args.action_focal_loss_gamma)
 
         loss_dict = {'loss_proposal': loss_proposal, 'loss_act': loss_action}
         if 'hoi_aux_outputs' in outputs:
             for i, aux_outputs in enumerate(outputs['hoi_aux_outputs']):
-                aux_loss = {f'loss_act_{i}': focal_loss(aux_outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids])}
+                aux_loss = {f'loss_act_{i}': focal_loss(aux_outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], gamma=self.args.action_focal_loss_gamma)}
                 loss_dict.update(aux_loss)
 
         return loss_dict
