@@ -217,8 +217,8 @@ class VRTRCriterion(nn.Module):
         self.args = args
         self.matcher = matcher
         self.weight_dict = {
-            'loss_proposal': 1,
-            'loss_act': 1
+            'loss_proposal': args.proposal_loss_coef,
+            'loss_act': args.action_loss_coef
         }
         if args.hoi_aux_loss:
             for i in range(args.hoi_dec_layers):
