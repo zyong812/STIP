@@ -23,7 +23,7 @@ class VRTR(nn.Module):
 
         # * Instance Transformer ---------------
         self.detr = detr
-        if args.frozen_weights is not None:
+        if not args.train_detr:
             # if this flag is given, freeze the object detection related parameters of DETR
             for p in self.parameters():
                 p.requires_grad_(False)

@@ -45,7 +45,7 @@ def save_ckpt(args, model_without_ddp, optimizer, lr_scheduler, epoch, filename)
 def main(args):
     utils.init_distributed_mode(args)
 
-    if args.frozen_weights is not None: # pretrained DETR
+    if not args.train_detr is not None: # pretrained DETR
         print("Freeze weights for detector")
 
     device = torch.device(args.device)
@@ -103,10 +103,10 @@ def main(args):
     n_parameters = print_params(model)
 
     param_dicts = [
-        {"params": [p for n, p in model_without_ddp.named_parameters() if "backbone" not in n and p.requires_grad]},
+        {"params": [p for n, p in model_without_ddp.named_parameters() if "detr" not in n and p.requires_grad]},
         {
-            "params": [p for n, p in model_without_ddp.named_parameters() if "backbone" in n and p.requires_grad],
-            "lr": args.lr_backbone,
+            "params": [p for n, p in model_without_ddp.named_parameters() if "detr" in n and p.requires_grad],
+            "lr": args.lr_detr,
         },
     ]
     optimizer = torch.optim.AdamW(param_dicts, lr=args.lr, weight_decay=args.weight_decay)
@@ -114,13 +114,13 @@ def main(args):
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=args.reduce_lr_on_plateau_factor, patience=args.reduce_lr_on_plateau_patience, verbose=True)
 
     # Weight Setup
-    if args.frozen_weights is not None:
-        print(f"Loading model weights from args.frozen_weights={args.frozen_weights}")
-        if args.frozen_weights.startswith('https'):
+    if args.detr_weights is not None:
+        print(f"Loading detr weights from args.detr_weights={args.detr_weights}")
+        if args.detr_weights.startswith('https'):
             checkpoint = torch.hub.load_state_dict_from_url(
-                args.frozen_weights, map_location='cpu', check_hash=True)
+                args.detr_weights, map_location='cpu', check_hash=True)
         else:
-            checkpoint = torch.load(args.frozen_weights, map_location='cpu')
+            checkpoint = torch.load(args.detr_weights, map_location='cpu')
         model_without_ddp.detr.load_state_dict(checkpoint['model'])
 
     if args.resume:
@@ -241,6 +241,9 @@ if __name__ == '__main__':
     parser.add_argument('--action_focal_loss_gamma', default=2, type=float)
     parser.add_argument('--proposal_loss_coef', default=1, type=float)
     parser.add_argument('--action_loss_coef', default=1, type=float)
+    parser.add_argument('--detr_weights', default=None, type=str)
+    parser.add_argument('--train_detr', action='store_true', default=False)
+    parser.add_argument('--lr_detr', default=1e-5, type=float)
     args = parser.parse_args()
     args.VRTR_relation_head = True
 
