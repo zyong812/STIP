@@ -81,7 +81,10 @@ class VRTR(nn.Module):
             for (ds, gs), t in zip(det2gt_indices, targets):
                 gt2det_map = torch.zeros(len(gs)).to(device=ds.device, dtype=ds.dtype)
                 gt2det_map[gs] = ds
-                gt_rel_pairs.append(gt2det_map[t['relation_map'].sum(-1).nonzero(as_tuple=False)])
+                gt_rels = gt2det_map[t['relation_map'].sum(-1).nonzero(as_tuple=False)]
+                perm = torch.randperm(len(gt_rels))
+
+                gt_rel_pairs.append(gt_rels[perm])
                 if len(gt_rel_pairs[-1]) > self.args.num_hoi_queries: print(f"imageid={t['image_id']}, gt_relation_count={len(gt_rel_pairs[-1])}")
 
         # >>>>>>>>>>>> HOI DETECTION LAYERS <<<<<<<<<<<<<<<
