@@ -231,19 +231,26 @@ if __name__ == '__main__':
         'End-to-End Human Object Interaction training and evaluation script',
         parents=[get_args_parser()]
     )
-    # specific settings
+    # training
     parser.add_argument('--hard_negative_relation_sampling', action='store_true', default=False)
-    parser.add_argument('--use_memory_union_mask', action='store_true', default=False)
-    parser.add_argument('--use_memory_role_embedding', action='store_true', default=False)
+    parser.add_argument('--detr_weights', default=None, type=str)
+    parser.add_argument('--train_detr', action='store_true', default=False)
+    parser.add_argument('--lr_detr', default=1e-5, type=float)
     parser.add_argument('--reduce_lr_on_plateau_patience', default=1, type=int)
     parser.add_argument('--reduce_lr_on_plateau_factor', default=0.2, type=float)
+
+    # loss
+    parser.add_argument('--proposal_focal_loss_alpha', default=0.5, type=float)
+    parser.add_argument('--action_focal_loss_alpha', default=0.5, type=float)
     parser.add_argument('--proposal_focal_loss_gamma', default=2, type=float)
     parser.add_argument('--action_focal_loss_gamma', default=2, type=float)
     parser.add_argument('--proposal_loss_coef', default=1, type=float)
     parser.add_argument('--action_loss_coef', default=1, type=float)
-    parser.add_argument('--detr_weights', default=None, type=str)
-    parser.add_argument('--train_detr', action='store_true', default=False)
-    parser.add_argument('--lr_detr', default=1e-5, type=float)
+
+    # model
+    parser.add_argument('--use_memory_union_mask', action='store_true', default=False)
+    parser.add_argument('--use_memory_role_embedding', action='store_true', default=False)
+
     args = parser.parse_args()
     args.VRTR_relation_head = True
 

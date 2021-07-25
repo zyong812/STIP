@@ -80,7 +80,7 @@ def get_args_parser():
                         help="Use Pre-trained Decoder in DETR for Interaction Decoder if the flag is provided")                        
     parser.add_argument('--hoi_enc_layers', default=1, type=int,
                         help="Number of decoding layers in HOI transformer")
-    parser.add_argument('--hoi_dec_layers', default=1, type=int,
+    parser.add_argument('--hoi_dec_layers', default=6, type=int,
                         help="Number of decoding layers in HOI transformer")
     parser.add_argument('--hoi_nheads', default=8, type=int,
                         help="Number of decoding layers in HOI transformer")

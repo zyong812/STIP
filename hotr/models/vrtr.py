@@ -258,8 +258,8 @@ class VRTRCriterion(nn.Module):
         rel_proposal_targets = (all_rel_pair_targets[..., self.valid_ids].sum(-1) > 0).float()
 
         # loss_proposal = F.binary_cross_entropy_with_logits(outputs['pred_action_exists'], rel_proposal_targets)
-        loss_proposal = focal_loss(outputs['pred_action_exists'], rel_proposal_targets, gamma=self.args.proposal_focal_loss_gamma) # loss proposals
-        loss_action = focal_loss(outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], gamma=self.args.action_focal_loss_gamma)
+        loss_proposal = focal_loss(outputs['pred_action_exists'], rel_proposal_targets, gamma=self.args.proposal_focal_loss_gamma, alpha=self.args.proposal_focal_loss_alpha) # loss proposals
+        loss_action = focal_loss(outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], gamma=self.args.action_focal_loss_gamma, alpha=self.args.action_focal_loss_alpha)
 
         loss_dict = {'loss_proposal': loss_proposal, 'loss_act': loss_action}
         if 'hoi_aux_outputs' in outputs:
@@ -453,7 +453,7 @@ class RelationFeatureExtractor(nn.Module):
         return spatial_feats
 
 
-def focal_loss(blogits, target_classes, alpha=0.25, gamma=2):
+def focal_loss(blogits, target_classes, alpha=0.5, gamma=2):
     probs = blogits.sigmoid() # prob(positive)
     loss_bce = F.binary_cross_entropy_with_logits(blogits, target_classes, reduction='none')
     p_t = probs * target_classes + (1 - probs) * (1 - target_classes)
