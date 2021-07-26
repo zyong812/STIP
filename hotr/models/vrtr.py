@@ -340,7 +340,7 @@ class VRTRPostProcess(nn.Module):
 
             # actions
             verb_scores = out_verb_logits.sigmoid()
-            # verb_scores = out_verb_logits.sigmoid() * outputs['pred_action_exists'].sigmoid() # interactiveness
+            # verb_scores = out_verb_logits.sigmoid() * outputs['pred_action_exists'].sigmoid().unsqueeze(-1) # interactiveness
 
             # accumulate results (iterate through interaction queries)
             results = []

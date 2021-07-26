@@ -28,6 +28,7 @@ import wandb
 from hotr.engine.evaluator_coco import coco_evaluate
 
 from hotr.util.logger import print_params, print_args
+from collections import OrderedDict
 
 def save_ckpt(args, model_without_ddp, optimizer, lr_scheduler, epoch, filename):
     # save_ckpt: function for saving checkpoints
@@ -121,7 +122,15 @@ def main(args):
                 args.detr_weights, map_location='cpu', check_hash=True)
         else:
             checkpoint = torch.load(args.detr_weights, map_location='cpu')
-        model_without_ddp.detr.load_state_dict(checkpoint['model'])
+
+        if 'hico_ft_q16.pth' in args.detr_weights: # hack: for loading hico fine-tuned detr
+            mapped_state_dict = OrderedDict()
+            for k, v in checkpoint['model'].items():
+                if k.startswith('detr.'):
+                    mapped_state_dict[k.replace('detr.', '')] = v
+            model_without_ddp.detr.load_state_dict(mapped_state_dict)
+        else:
+            model_without_ddp.detr.load_state_dict(checkpoint['model'])
 
     if args.resume:
         print(f"Loading model weights from args.resume={args.resume}")

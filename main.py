@@ -113,6 +113,7 @@ def main(args):
 
     # Weight Setup
     if args.frozen_weights is not None:
+        print(f"Loading detr weights from args.frozen_weights={args.frozen_weights}")
         if args.frozen_weights.startswith('https'):
             checkpoint = torch.hub.load_state_dict_from_url(
                 args.frozen_weights, map_location='cpu', check_hash=True)
@@ -121,6 +122,7 @@ def main(args):
         model_without_ddp.detr.load_state_dict(checkpoint['model'])
 
     if args.resume:
+        print(f"Loading model weights from args.resume={args.resume}")
         if args.resume.startswith('https'):
             checkpoint = torch.hub.load_state_dict_from_url(
                 args.resume, map_location='cpu', check_hash=True)
