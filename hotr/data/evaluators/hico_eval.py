@@ -40,7 +40,7 @@ class HICOEvaluator():
             if len(subject_ids) > 0:
                 object_labels = np.array([bboxes[object_id]['category_id'] for object_id in object_ids])
                 masks = correct_mat[verb_labels, object_labels]
-                hoi_scores *= masks # 丢掉不可能的 verb-obj pairs
+                hoi_scores *= masks #  丢掉不可能的 verb-obj pairs
 
                 hois = [{'subject_id': subject_id, 'object_id': object_id, 'category_id': category_id, 'score': score} for
                         subject_id, object_id, category_id, score in zip(subject_ids, object_ids, verb_labels, hoi_scores)]
