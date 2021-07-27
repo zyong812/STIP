@@ -67,7 +67,10 @@ class VRTR(nn.Module):
 
         # >>>>>>>>>>>> OBJECT DETECTION LAYERS <<<<<<<<<<
         hs, _ = self.detr.transformer(self.detr.input_proj(src), mask, self.detr.query_embed.weight, pos[-1])
-        inst_repr = hs[-1] # instance representations, .detach()?
+        if self.args.detach_instance_representation: # instance representations
+            inst_repr = hs[-1].detach()
+        else:
+            inst_repr = hs[-1]
         num_nodes = inst_repr.shape[1]
 
         # Prediction Heads for Object Detection
@@ -110,7 +113,7 @@ class VRTR(nn.Module):
                     # hard negative sampling
                     all_pairs = torch.cat([gt_rel_pairs[imgid], rel_pairs], dim=0)
                     gt_pair_count = len(gt_rel_pairs[imgid])
-                    all_rel_reps = self.union_box_feature_extractor(all_pairs, features[-1], outputs_coord[-1, imgid], inst_repr[imgid], idx=imgid)
+                    all_rel_reps = self.union_box_feature_extractor(all_pairs, features[-1], outputs_coord[-1, imgid].detach(), inst_repr[imgid], idx=imgid)
                     p_relation_exist_logits = self.relation_proposal_mlp(all_rel_reps).squeeze()
 
                     gt_inds = torch.arange(gt_pair_count).to(p_relation_exist_logits.device)
@@ -124,13 +127,13 @@ class VRTR(nn.Module):
                     # random sampling
                     sampled_neg_inds = torch.randperm(len(rel_pairs))
                     sampled_rel_pairs = torch.cat([gt_rel_pairs[imgid], rel_pairs[sampled_neg_inds]], dim=0)[:self.args.num_hoi_queries]
-                    sampled_rel_reps = self.union_box_feature_extractor(sampled_rel_pairs, features[-1], outputs_coord[-1, imgid], inst_repr[imgid], idx=imgid)
+                    sampled_rel_reps = self.union_box_feature_extractor(sampled_rel_pairs, features[-1], outputs_coord[-1, imgid].detach(), inst_repr[imgid], idx=imgid)
                     sampled_rel_pred_exists = self.relation_proposal_mlp(sampled_rel_reps).squeeze()
             else:
                 rel_pairs = rel_mat.nonzero(as_tuple=False)
                 if len(rel_pairs) == 0:
                     rel_pairs = (rel_mat == 0).nonzero(as_tuple=False) # just placeholders
-                rel_reps = self.union_box_feature_extractor(rel_pairs, features[-1], outputs_coord[-1, imgid], inst_repr[imgid], idx=imgid)
+                rel_reps = self.union_box_feature_extractor(rel_pairs, features[-1], outputs_coord[-1, imgid].detach(), inst_repr[imgid], idx=imgid)
                 p_relation_exist_logits = self.relation_proposal_mlp(rel_reps).squeeze()
 
                 _, sort_rel_inds = p_relation_exist_logits.squeeze().sort(descending=True)
