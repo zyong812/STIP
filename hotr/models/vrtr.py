@@ -12,6 +12,7 @@ from .transformer import TransformerDecoderLayer, TransformerDecoder
 from hotr.util import box_ops
 import numpy as np
 import matplotlib.pyplot as plt
+from hotr.util.misc import accuracy, is_dist_avail_and_initialized, get_world_size
 
 # sequential visual relationship transformer
 class VRTR(nn.Module):
@@ -66,16 +67,16 @@ class VRTR(nn.Module):
 
         # >>>>>>>>>>>> OBJECT DETECTION LAYERS <<<<<<<<<<
         hs, _ = self.detr.transformer(self.detr.input_proj(src), mask, self.detr.query_embed.weight, pos[-1])
-        inst_repr = hs[-1] # instance representations
+        inst_repr = hs[-1] # instance representations, .detach()?
         num_nodes = inst_repr.shape[1]
 
         # Prediction Heads for Object Detection
-        outputs_class = self.detr.class_embed(inst_repr)
-        outputs_coord = self.detr.bbox_embed(inst_repr).sigmoid()
+        outputs_class = self.detr.class_embed(hs)
+        outputs_coord = self.detr.bbox_embed(hs).sigmoid()
         # -----------------------------------------------
         det2gt_indices = None
         if self.training:
-            detr_outs = {"pred_logits": outputs_class, "pred_boxes": outputs_coord}
+            detr_outs = {"pred_logits": outputs_class[-1], "pred_boxes": outputs_coord[-1]}
             det2gt_indices = self.detr_matcher(detr_outs, targets)
             gt_rel_pairs = []
             for (ds, gs), t in zip(det2gt_indices, targets):
@@ -94,7 +95,7 @@ class VRTR(nn.Module):
 
         for imgid in range(bs):
             # >>>>>>>>>>>> relation proposal <<<<<<<<<<<<<<<
-            inst_labels = outputs_class[imgid].max(-1)[-1]
+            inst_labels = outputs_class[-1, imgid].max(-1)[-1]
             rel_mat = torch.zeros((num_nodes, num_nodes))
             rel_mat[inst_labels==1] = 1 # subj is human
 
@@ -109,7 +110,7 @@ class VRTR(nn.Module):
                     # hard negative sampling
                     all_pairs = torch.cat([gt_rel_pairs[imgid], rel_pairs], dim=0)
                     gt_pair_count = len(gt_rel_pairs[imgid])
-                    all_rel_reps = self.union_box_feature_extractor(all_pairs, features[-1], outputs_coord[imgid], inst_repr[imgid], idx=imgid)
+                    all_rel_reps = self.union_box_feature_extractor(all_pairs, features[-1], outputs_coord[-1, imgid], inst_repr[imgid], idx=imgid)
                     p_relation_exist_logits = self.relation_proposal_mlp(all_rel_reps).squeeze()
 
                     gt_inds = torch.arange(gt_pair_count).to(p_relation_exist_logits.device)
@@ -123,13 +124,13 @@ class VRTR(nn.Module):
                     # random sampling
                     sampled_neg_inds = torch.randperm(len(rel_pairs))
                     sampled_rel_pairs = torch.cat([gt_rel_pairs[imgid], rel_pairs[sampled_neg_inds]], dim=0)[:self.args.num_hoi_queries]
-                    sampled_rel_reps = self.union_box_feature_extractor(sampled_rel_pairs, features[-1], outputs_coord[imgid], inst_repr[imgid], idx=imgid)
+                    sampled_rel_reps = self.union_box_feature_extractor(sampled_rel_pairs, features[-1], outputs_coord[-1, imgid], inst_repr[imgid], idx=imgid)
                     sampled_rel_pred_exists = self.relation_proposal_mlp(sampled_rel_reps).squeeze()
             else:
                 rel_pairs = rel_mat.nonzero(as_tuple=False)
                 if len(rel_pairs) == 0:
                     rel_pairs = (rel_mat == 0).nonzero(as_tuple=False) # just placeholders
-                rel_reps = self.union_box_feature_extractor(rel_pairs, features[-1], outputs_coord[imgid], inst_repr[imgid], idx=imgid)
+                rel_reps = self.union_box_feature_extractor(rel_pairs, features[-1], outputs_coord[-1, imgid], inst_repr[imgid], idx=imgid)
                 p_relation_exist_logits = self.relation_proposal_mlp(rel_reps).squeeze()
 
                 _, sort_rel_inds = p_relation_exist_logits.squeeze().sort(descending=True)
@@ -141,7 +142,7 @@ class VRTR(nn.Module):
 
             # >>>>>>>>>>>> relation classification <<<<<<<<<<<<<<<
             memory_role_embedding, memory_union_mask = None, None
-            subj_mask, obj_mask, union_mask = self.generate_layout_masks(sampled_rel_pairs, memory_input_mask, outputs_coord[imgid], idx=imgid)
+            subj_mask, obj_mask, union_mask = self.generate_layout_masks(sampled_rel_pairs, memory_input_mask, outputs_coord[-1, imgid], idx=imgid)
             if self.args.use_memory_union_mask:
                 memory_union_mask = union_mask.flatten(1)
             if self.args.use_memory_role_embedding:
@@ -164,8 +165,8 @@ class VRTR(nn.Module):
 
         pred_actions = torch.cat(pred_actions, dim=2).transpose(1,2)
         out = {
-            "pred_logits": outputs_class,
-            "pred_boxes": outputs_coord,
+            "pred_logits": outputs_class[-1],
+            "pred_boxes": outputs_coord[-1],
             "pred_rel_pairs": torch.stack(pred_rel_pairs, dim=0),
             "pred_actions": pred_actions[-1],
             "pred_action_exists": torch.stack(pred_rel_exists, dim=0),
@@ -173,14 +174,18 @@ class VRTR(nn.Module):
             "hoi_recognition_time": 0,
         }
 
-        if self.args.hoi_aux_loss: # auxiliary loss
-            out['hoi_aux_outputs'] = self._set_aux_loss_with_tgt(pred_actions)
+        if self.args.hoi_aux_loss: out['hoi_aux_outputs'] = self._set_hoi_aux_loss(pred_actions)
+        if self.args.train_detr and self.args.aux_loss: out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
 
         return out
 
     @torch.jit.unused
-    def _set_aux_loss_with_tgt(self, outputs_action):
-        return [{'pred_actions': x} for x in outputs_action[:-1]]
+    def _set_hoi_aux_loss(self, pred_actions):
+        return [{'pred_actions': a} for a in pred_actions[:-1]]
+
+    @torch.jit.unused
+    def _set_aux_loss(self, outputs_class, outputs_coord):
+        return [{"pred_logits": l, "pred_boxes": b} for l, b in zip(outputs_class[:-1], outputs_coord[:-1])]
 
     def generate_layout_masks(self, rel_pairs, feature_masks, boxes, idx):
         xyxy_boxes = box_ops.box_cxcywh_to_xyxy(boxes).clamp(0, 1)
@@ -224,7 +229,7 @@ class VRTRCriterion(nn.Module):
             'loss_act': args.action_loss_coef
         }
         if args.hoi_aux_loss:
-            for i in range(args.hoi_dec_layers):
+            for i in range(args.hoi_dec_layers - 1):
                 self.weight_dict.update({f'loss_act_{i}': self.weight_dict['loss_act']})
 
         if args.dataset_file == 'vcoco':
@@ -233,6 +238,103 @@ class VRTRCriterion(nn.Module):
         elif args.dataset_file == 'hico-det':
             self.invalid_ids = []
             self.valid_ids = list(range(self.args.num_actions))
+            self.hico_valid_obj_ids = torch.tensor(self.args.valid_obj_ids)
+
+        if args.train_detr:
+            self.num_classes = args.num_classes
+            empty_weight = torch.ones(self.num_classes + 1)
+            empty_weight[-1] = args.eos_coef
+            self.register_buffer('empty_weight', empty_weight)
+
+            self.detr_losses = ['labels', 'boxes', 'cardinality']
+            det_weights = {'loss_ce': 1, 'loss_bbox': args.bbox_loss_coef, 'loss_giou': args.giou_loss_coef}
+            if args.aux_loss:
+                aux_weights = {}
+                for i in range(args.dec_layers - 1):
+                    aux_weights.update({k + f'_{i}': v for k, v in det_weights.items()})
+                det_weights.update(aux_weights)
+            self.weight_dict.update(det_weights)
+
+    #######################################################################################################################
+    # * DETR Losses
+    #######################################################################################################################
+    def loss_labels(self, outputs, targets, indices, num_boxes, log=True):
+        """Classification loss (NLL)
+        targets dicts must contain the key "labels" containing a tensor of dim [nb_target_boxes]
+        """
+        assert 'pred_logits' in outputs
+        src_logits = outputs['pred_logits']
+
+        idx = self._get_src_permutation_idx(indices)
+        target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
+        if self.args.dataset_file == 'hico-det': # map to ids same as coco
+            target_classes_o = self.hico_valid_obj_ids.to(target_classes_o.device)[target_classes_o]
+        target_classes = torch.full(src_logits.shape[:2], self.num_classes, dtype=torch.int64, device=src_logits.device)
+        target_classes[idx] = target_classes_o
+
+        loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight)
+        losses = {'loss_ce': loss_ce}
+
+        if log:
+            # TODO this should probably be a separate loss, not hacked in this one here
+            losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
+        return losses
+
+    @torch.no_grad()
+    def loss_cardinality(self, outputs, targets, indices, num_boxes):
+        """ Compute the cardinality error, ie the absolute error in the number of predicted non-empty boxes
+        This is not really a loss, it is intended for logging purposes only. It doesn't propagate gradients
+        """
+        pred_logits = outputs['pred_logits']
+        device = pred_logits.device
+        tgt_lengths = torch.as_tensor([len(v["labels"]) for v in targets], device=device)
+        # Count the number of predictions that are NOT "no-object" (which is the last class)
+        card_pred = (pred_logits.argmax(-1) != pred_logits.shape[-1] - 1).sum(1)
+        card_err = F.l1_loss(card_pred.float(), tgt_lengths.float())
+        losses = {'cardinality_error': card_err}
+        return losses
+
+    def loss_boxes(self, outputs, targets, indices, num_boxes):
+        """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
+           targets dicts must contain the key "boxes" containing a tensor of dim [nb_target_boxes, 4]
+           The target boxes are expected in format (center_x, center_y, w, h), normalized by the image size.
+        """
+        assert 'pred_boxes' in outputs
+        idx = self._get_src_permutation_idx(indices)
+        src_boxes = outputs['pred_boxes'][idx]
+        target_boxes = torch.cat([t['boxes'][i] for t, (_, i) in zip(targets, indices)], dim=0)
+
+        loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction='none')
+
+        losses = {}
+        losses['loss_bbox'] = loss_bbox.sum() / num_boxes
+
+        loss_giou = 1 - torch.diag(box_ops.generalized_box_iou(
+            box_ops.box_cxcywh_to_xyxy(src_boxes),
+            box_ops.box_cxcywh_to_xyxy(target_boxes)))
+        losses['loss_giou'] = loss_giou.sum() / num_boxes
+        return losses
+
+    def _get_src_permutation_idx(self, indices):
+        # permute predictions following indices
+        batch_idx = torch.cat([torch.full_like(src, i) for i, (src, _) in enumerate(indices)])
+        src_idx = torch.cat([src for (src, _) in indices])
+        return batch_idx, src_idx
+
+    def _get_tgt_permutation_idx(self, indices):
+        # permute targets following indices
+        batch_idx = torch.cat([torch.full_like(tgt, i) for i, (_, tgt) in enumerate(indices)])
+        tgt_idx = torch.cat([tgt for (_, tgt) in indices])
+        return batch_idx, tgt_idx
+
+    def get_loss(self, loss, outputs, targets, indices, num_boxes, **kwargs):
+        loss_map = {
+            'labels': self.loss_labels,
+            'cardinality': self.loss_cardinality,
+            'boxes': self.loss_boxes
+        }
+        assert loss in loss_map, f'do you really want to compute {loss} loss?'
+        return loss_map[loss](outputs, targets, indices, num_boxes, **kwargs)
 
     def forward(self, outputs, targets, log=False):
         # instance matching
@@ -266,6 +368,32 @@ class VRTRCriterion(nn.Module):
             for i, aux_outputs in enumerate(outputs['hoi_aux_outputs']):
                 aux_loss = {f'loss_act_{i}': focal_loss(aux_outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], gamma=self.args.action_focal_loss_gamma, alpha=self.args.action_focal_loss_alpha)}
                 loss_dict.update(aux_loss)
+
+        # jointly train objects and relation decoder
+        if self.args.train_detr:
+            # Compute the average number of target boxes accross all nodes, for normalization purposes
+            num_boxes = sum(len(t["labels"]) for t in targets)
+            num_boxes = torch.as_tensor([num_boxes], dtype=torch.float, device=next(iter(outputs.values())).device)
+            if is_dist_avail_and_initialized():
+                torch.distributed.all_reduce(num_boxes)
+            num_boxes = torch.clamp(num_boxes / get_world_size(), min=1).item()
+
+            # Compute all the requested losses
+            for loss in self.detr_losses:
+                loss_dict.update(self.get_loss(loss, outputs, targets, indices, num_boxes))
+
+            # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.
+            if 'aux_outputs' in outputs:
+                for i, aux_outputs in enumerate(outputs['aux_outputs']):
+                    indices = self.matcher(aux_outputs, targets)
+                    for loss in self.detr_losses:
+                        kwargs = {}
+                        if loss == 'labels':
+                            # Logging is enabled only for the last layer
+                            kwargs = {'log': False}
+                        l_dict = self.get_loss(loss, aux_outputs, targets, indices, num_boxes, **kwargs)
+                        l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
+                        loss_dict.update(l_dict)
 
         return loss_dict
 

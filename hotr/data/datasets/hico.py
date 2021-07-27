@@ -165,7 +165,7 @@ class HICODetection(torch.utils.data.Dataset):
                 hois.append((hoi['subject_id'], hoi['object_id'], self._valid_verb_ids.index(hoi['category_id'])))
             target['hois'] = torch.as_tensor(hois, dtype=torch.int64)
 
-        target['image_id'] = torch.tensor([idx]) 
+        target['image_id'] = torch.tensor([idx])
         return img, target
 
     def set_rare_hois(self, anno_file):
