@@ -245,7 +245,7 @@ if __name__ == '__main__':
         parents=[get_args_parser()]
     )
     # training
-    parser.add_argument('--hard_negative_relation_sampling', action='store_true', default=False)
+    parser.add_argument('--no_hard_negative_relation_sampling', dest='hard_negative_relation_sampling', action='store_false', default=True)
     parser.add_argument('--detr_weights', default=None, type=str)
     parser.add_argument('--train_detr', action='store_true', default=False)
     parser.add_argument('--finetune_detr_weight', default=0.1, type=float)
