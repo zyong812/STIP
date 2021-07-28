@@ -67,10 +67,7 @@ class VRTR(nn.Module):
 
         # >>>>>>>>>>>> OBJECT DETECTION LAYERS <<<<<<<<<<
         hs, _ = self.detr.transformer(self.detr.input_proj(src), mask, self.detr.query_embed.weight, pos[-1])
-        if self.args.detach_instance_representation: # instance representations
-            inst_repr = hs[-1].detach()
-        else:
-            inst_repr = hs[-1]
+        inst_repr = hs[-1]
         num_nodes = inst_repr.shape[1]
 
         # Prediction Heads for Object Detection
@@ -250,7 +247,7 @@ class VRTRCriterion(nn.Module):
             self.register_buffer('empty_weight', empty_weight)
 
             self.detr_losses = ['labels', 'boxes', 'cardinality']
-            det_weights = {'loss_ce': 1, 'loss_bbox': args.bbox_loss_coef, 'loss_giou': args.giou_loss_coef}
+            det_weights = {'loss_ce': 1 * args.finetune_detr_weight, 'loss_bbox': args.bbox_loss_coef * args.finetune_detr_weight, 'loss_giou': args.giou_loss_coef * args.finetune_detr_weight}
             if args.aux_loss:
                 aux_weights = {}
                 for i in range(args.dec_layers - 1):

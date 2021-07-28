@@ -87,7 +87,7 @@ def get_args_parser():
     parser.add_argument('--hoi_dim_feedforward', default=2048, type=int,
                         help="Number of decoding layers in HOI transformer")
     # parser.add_argument('--hoi_mode', type=str, default=None, help='[inst | pair | all]')
-    parser.add_argument('--num_hoi_queries', default=100, type=int,
+    parser.add_argument('--num_hoi_queries', default=64, type=int,
                         help="Number of Queries for Interaction Decoder")
     parser.add_argument('--hoi_aux_loss', action='store_true')
 

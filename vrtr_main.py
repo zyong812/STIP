@@ -106,8 +106,12 @@ def main(args):
     param_dicts = [
         {"params": [p for n, p in model_without_ddp.named_parameters() if "detr" not in n and p.requires_grad]},
         {
-            "params": [p for n, p in model_without_ddp.named_parameters() if "detr" in n and p.requires_grad],
-            "lr": args.lr_detr,
+            "params": [p for n, p in model_without_ddp.named_parameters() if ("detr" in n and 'backbone' not in n) and p.requires_grad],
+            "lr": args.lr * 0.1,
+        },
+        {
+            "params": [p for n, p in model_without_ddp.named_parameters() if ("detr" in n and 'backbone' in n) and p.requires_grad],
+            "lr": args.lr * 0.01,
         },
     ]
     optimizer = torch.optim.AdamW(param_dicts, lr=args.lr, weight_decay=args.weight_decay)
@@ -244,14 +248,14 @@ if __name__ == '__main__':
     parser.add_argument('--hard_negative_relation_sampling', action='store_true', default=False)
     parser.add_argument('--detr_weights', default=None, type=str)
     parser.add_argument('--train_detr', action='store_true', default=False)
-    parser.add_argument('--undetach_instance_representation', dest='detach_instance_representation', action='store_false', default=True)
+    parser.add_argument('--finetune_detr_weight', default=0.1, type=float)
     parser.add_argument('--lr_detr', default=1e-5, type=float)
     parser.add_argument('--reduce_lr_on_plateau_patience', default=1, type=int)
     parser.add_argument('--reduce_lr_on_plateau_factor', default=0.2, type=float)
 
     # loss
-    parser.add_argument('--proposal_focal_loss_alpha', default=0.5, type=float)
-    parser.add_argument('--action_focal_loss_alpha', default=0.5, type=float)
+    parser.add_argument('--proposal_focal_loss_alpha', default=0.25, type=float)
+    parser.add_argument('--action_focal_loss_alpha', default=0.75, type=float)
     parser.add_argument('--proposal_focal_loss_gamma', default=2, type=float)
     parser.add_argument('--action_focal_loss_gamma', default=2, type=float)
     parser.add_argument('--proposal_loss_coef', default=1, type=float)
