@@ -265,7 +265,7 @@ def multi_head_attention_forward_with_role(query,                 # type: Tensor
     attn_output_weights = torch.bmm(q, k.transpose(1, 2))
     if memory_role_embedding is not None: # todo: check normalize & scaling
         memory_len = memory_role_embedding.shape[1]
-        r = memory_role_embedding.view(tgt_len, memory_len, bsz * num_heads, head_dim) * scaling
+        r = memory_role_embedding.view(tgt_len, memory_len, bsz * num_heads, head_dim) * scaling * 0.1 # stability
         r = r.permute(2,0,1,3).contiguous() # (#heads, #query, #memory, #dim)
         attn_output_weights += torch.matmul(q.unsqueeze(2), r.transpose(3,2)).squeeze()
     assert list(attn_output_weights.size()) == [bsz * num_heads, tgt_len, src_len]
