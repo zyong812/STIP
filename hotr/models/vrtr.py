@@ -49,9 +49,12 @@ class VRTR(nn.Module):
         if args.use_memory_role_embedding:
             self.role_embeddings = nn.Embedding(6, self.args.hidden_dim) # 0-pad, 1-image, 2-union, 3-subj, 4-obj, 5-intersection
 
-        decoder_layer = TransformerDecoderLayer(d_model=self.args.hidden_dim, nhead=self.args.hoi_nheads)
-        decoder_norm = nn.LayerNorm(self.args.hidden_dim)
-        self.interaction_decoder = TransformerDecoder(decoder_layer, self.args.hoi_dec_layers, decoder_norm, return_intermediate=True)
+        if self.args.no_interaction_decoder:
+            self.args.hoi_aux_loss = False
+        else:
+            decoder_layer = TransformerDecoderLayer(d_model=self.args.hidden_dim, nhead=self.args.hoi_nheads)
+            decoder_norm = nn.LayerNorm(self.args.hidden_dim)
+            self.interaction_decoder = TransformerDecoder(decoder_layer, self.args.hoi_dec_layers, decoder_norm, return_intermediate=True)
         self.action_embed = nn.Linear(self.args.hidden_dim, self.args.num_actions)
 
     def forward(self, samples: NestedTensor, targets=None):
@@ -151,12 +154,15 @@ class VRTR(nn.Module):
                 memory_role_embedding = memory_role_embedding.flatten(start_dim=1, end_dim=2).unsqueeze(2) # (#query, #memory, batch size, dim)
                 # plt.imshow(role_map[0].cpu().numpy(), cmap=plt.cm.hot_r); plt.colorbar(); plt.show()
 
-            outs = self.interaction_decoder(tgt=self.rel_query_pre_proj(sampled_rel_reps).unsqueeze(1),
-                                            memory=self.memory_input_proj(memory_input[imgid:imgid+1]).flatten(2).permute(2,0,1),
-                                            memory_mask=memory_union_mask,
-                                            memory_key_padding_mask=memory_input_mask[imgid:imgid+1].flatten(1),
-                                            pos=memory_pos[imgid:imgid+1].flatten(2).permute(2, 0, 1),
-                                            memory_role_embedding=memory_role_embedding)
+            if self.args.no_interaction_decoder:
+                outs = self.rel_query_pre_proj(sampled_rel_reps).unsqueeze(1).unsqueeze(0)
+            else:
+                outs = self.interaction_decoder(tgt=self.rel_query_pre_proj(sampled_rel_reps).unsqueeze(1),
+                                                memory=self.memory_input_proj(memory_input[imgid:imgid+1]).flatten(2).permute(2,0,1),
+                                                memory_mask=memory_union_mask,
+                                                memory_key_padding_mask=memory_input_mask[imgid:imgid+1].flatten(1),
+                                                pos=memory_pos[imgid:imgid+1].flatten(2).permute(2, 0, 1),
+                                                memory_role_embedding=memory_role_embedding)
             action_logits = self.action_embed(outs)
 
             pred_rel_pairs.append(sampled_rel_pairs)

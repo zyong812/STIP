@@ -264,6 +264,7 @@ if __name__ == '__main__':
     # model
     parser.add_argument('--use_memory_union_mask', action='store_true', default=False)
     parser.add_argument('--use_memory_role_embedding', action='store_true', default=False)
+    parser.add_argument('--no_interaction_decoder', action='store_true', default=False)
 
     args = parser.parse_args()
     args.VRTR_relation_head = True
