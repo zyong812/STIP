@@ -263,6 +263,8 @@ if __name__ == '__main__':
 
     # model
     parser.add_argument('--use_memory_union_mask', action='store_true', default=False)
+    parser.add_argument('--use_relation_tgt_mask', action='store_true', default=False)
+    parser.add_argument('--use_relation_tgt_mask_attend_topk', default=10, type=int)
     parser.add_argument('--use_memory_role_embedding', action='store_true', default=False)
     parser.add_argument('--no_interaction_decoder', action='store_true', default=False)
 

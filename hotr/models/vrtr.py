@@ -144,7 +144,7 @@ class VRTR(nn.Module):
                 sampled_rel_pred_exists = p_relation_exist_logits[sampled_rel_inds]
 
             # >>>>>>>>>>>> relation classification <<<<<<<<<<<<<<<
-            memory_role_embedding, memory_union_mask = None, None
+            memory_role_embedding, memory_union_mask, tgt_mask = None, None, None
             subj_mask, obj_mask, union_mask = self.generate_layout_masks(sampled_rel_pairs, memory_input_mask, outputs_coord[-1, imgid], idx=imgid)
             if self.args.use_memory_union_mask:
                 memory_union_mask = union_mask.flatten(1)
@@ -153,11 +153,17 @@ class VRTR(nn.Module):
                 memory_role_embedding = self.role_embeddings(role_map)
                 memory_role_embedding = memory_role_embedding.flatten(start_dim=1, end_dim=2).unsqueeze(2) # (#query, #memory, batch size, dim)
                 # plt.imshow(role_map[0].cpu().numpy(), cmap=plt.cm.hot_r); plt.colorbar(); plt.show()
+            if self.args.use_relation_tgt_mask:
+                tgt_mask = (torch.diag(sampled_rel_pred_exists) != 0)
+                attend_ids = sampled_rel_pred_exists.sort(descending=True)[1][:self.use_relation_tgt_mask_attend_topk]
+                tgt_mask[:, attend_ids] = True
+                tgt_mask = tgt_mask.float().masked_fill(tgt_mask == 0, float('-inf')).masked_fill(tgt_mask == 1, float(0.0))
 
             if self.args.no_interaction_decoder:
                 outs = self.rel_query_pre_proj(sampled_rel_reps).unsqueeze(1).unsqueeze(0)
             else:
                 outs = self.interaction_decoder(tgt=self.rel_query_pre_proj(sampled_rel_reps).unsqueeze(1),
+                                                tgt_mask=tgt_mask,
                                                 memory=self.memory_input_proj(memory_input[imgid:imgid+1]).flatten(2).permute(2,0,1),
                                                 memory_mask=memory_union_mask,
                                                 memory_key_padding_mask=memory_input_mask[imgid:imgid+1].flatten(1),
