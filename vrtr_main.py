@@ -250,7 +250,7 @@ if __name__ == '__main__':
     parser.add_argument('--train_detr', action='store_true', default=False)
     parser.add_argument('--finetune_detr_weight', default=0.1, type=float)
     parser.add_argument('--lr_detr', default=1e-5, type=float)
-    parser.add_argument('--reduce_lr_on_plateau_patience', default=1, type=int)
+    parser.add_argument('--reduce_lr_on_plateau_patience', default=3, type=int)
     parser.add_argument('--reduce_lr_on_plateau_factor', default=0.2, type=float)
 
     # loss
