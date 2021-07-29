@@ -267,6 +267,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_relation_tgt_mask_attend_topk', default=10, type=int)
     parser.add_argument('--use_memory_role_embedding', action='store_true', default=False)
     parser.add_argument('--no_interaction_decoder', action='store_true', default=False)
+    parser.add_argument('--relation_feature_map_from', default='backbone', help='backbone | detr_encoder')
 
     args = parser.parse_args()
     args.VRTR_relation_head = True

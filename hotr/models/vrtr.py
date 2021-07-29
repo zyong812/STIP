@@ -20,8 +20,6 @@ class VRTR(nn.Module):
         super().__init__()
         self.args = args
         self.detr_matcher = detr_matcher
-        backbone_out_ch = 2048
-
         # * Instance Transformer ---------------
         self.detr = detr
         if not args.train_detr:
@@ -30,20 +28,25 @@ class VRTR(nn.Module):
                 p.requires_grad_(False)
         # --------------------------------------
 
+        # relation feature map
+        if self.args.relation_feature_map_from == 'backbone':
+            if args.use_high_resolution_relation_feature_map:
+                relation_feature_map_dim = 1024
+            else:
+                relation_feature_map_dim = 2048
+        elif self.args.relation_feature_map_from == 'detr_encoder':
+            relation_feature_map_dim = self.args.hidden_dim
+
         # relation proposal
         rel_rep_dim = 1024
-        self.union_box_feature_extractor = RelationFeatureExtractor(in_channels=backbone_out_ch, resolution=7, out_dim=rel_rep_dim)
+        self.union_box_feature_extractor = RelationFeatureExtractor(in_channels=relation_feature_map_dim, resolution=7, out_dim=rel_rep_dim)
         self.relation_proposal_mlp = nn.Sequential(
             make_fc(rel_rep_dim, rel_rep_dim // 2), nn.ReLU(),
             make_fc(rel_rep_dim // 2, 1)
         )
 
         # relation classification
-        if args.use_high_resolution_relation_feature_map:
-            memory_input_dim = 1024
-        else:
-            memory_input_dim = backbone_out_ch
-        self.memory_input_proj = nn.Conv2d(memory_input_dim, self.args.hidden_dim, kernel_size=1)
+        self.memory_input_proj = nn.Conv2d(relation_feature_map_dim, self.args.hidden_dim, kernel_size=1)
         self.rel_query_pre_proj = make_fc(rel_rep_dim, self.args.hidden_dim)
 
         if args.use_memory_role_embedding:
@@ -69,7 +72,7 @@ class VRTR(nn.Module):
         # ----------------------------------------------
 
         # >>>>>>>>>>>> OBJECT DETECTION LAYERS <<<<<<<<<<
-        hs, _ = self.detr.transformer(self.detr.input_proj(src), mask, self.detr.query_embed.weight, pos[-1])
+        hs, detr_encoder_outs = self.detr.transformer(self.detr.input_proj(src), mask, self.detr.query_embed.weight, pos[-1])
         inst_repr = hs[-1]
         num_nodes = inst_repr.shape[1]
 
@@ -95,6 +98,11 @@ class VRTR(nn.Module):
         pred_rel_exists, pred_rel_pairs, pred_actions = [], [], []
         memory_input, memory_input_mask = features[0].decompose()
         memory_pos = pos[0]
+        if self.args.relation_feature_map_from == 'backbone':
+            relation_feature_map = features[-1]
+        elif self.args.relation_feature_map_from == 'detr_encoder':
+            relation_feature_map = NestedTensor(detr_encoder_outs, memory_input_mask)
+            memory_input = detr_encoder_outs
 
         for imgid in range(bs):
             # >>>>>>>>>>>> relation proposal <<<<<<<<<<<<<<<
@@ -113,7 +121,7 @@ class VRTR(nn.Module):
                     # hard negative sampling
                     all_pairs = torch.cat([gt_rel_pairs[imgid], rel_pairs], dim=0)
                     gt_pair_count = len(gt_rel_pairs[imgid])
-                    all_rel_reps = self.union_box_feature_extractor(all_pairs, features[-1], outputs_coord[-1, imgid].detach(), inst_repr[imgid], idx=imgid)
+                    all_rel_reps = self.union_box_feature_extractor(all_pairs, relation_feature_map, outputs_coord[-1, imgid].detach(), inst_repr[imgid], idx=imgid)
                     p_relation_exist_logits = self.relation_proposal_mlp(all_rel_reps).squeeze()
 
                     gt_inds = torch.arange(gt_pair_count).to(p_relation_exist_logits.device)
@@ -127,13 +135,13 @@ class VRTR(nn.Module):
                     # random sampling
                     sampled_neg_inds = torch.randperm(len(rel_pairs))
                     sampled_rel_pairs = torch.cat([gt_rel_pairs[imgid], rel_pairs[sampled_neg_inds]], dim=0)[:self.args.num_hoi_queries]
-                    sampled_rel_reps = self.union_box_feature_extractor(sampled_rel_pairs, features[-1], outputs_coord[-1, imgid].detach(), inst_repr[imgid], idx=imgid)
+                    sampled_rel_reps = self.union_box_feature_extractor(sampled_rel_pairs, relation_feature_map, outputs_coord[-1, imgid].detach(), inst_repr[imgid], idx=imgid)
                     sampled_rel_pred_exists = self.relation_proposal_mlp(sampled_rel_reps).squeeze()
             else:
                 rel_pairs = rel_mat.nonzero(as_tuple=False)
                 if len(rel_pairs) == 0:
                     rel_pairs = (rel_mat == 0).nonzero(as_tuple=False) # just placeholders
-                rel_reps = self.union_box_feature_extractor(rel_pairs, features[-1], outputs_coord[-1, imgid].detach(), inst_repr[imgid], idx=imgid)
+                rel_reps = self.union_box_feature_extractor(rel_pairs, relation_feature_map, outputs_coord[-1, imgid].detach(), inst_repr[imgid], idx=imgid)
                 p_relation_exist_logits = self.relation_proposal_mlp(rel_reps).squeeze()
 
                 _, sort_rel_inds = p_relation_exist_logits.squeeze().sort(descending=True)
@@ -155,7 +163,7 @@ class VRTR(nn.Module):
                 # plt.imshow(role_map[0].cpu().numpy(), cmap=plt.cm.hot_r); plt.colorbar(); plt.show()
             if self.args.use_relation_tgt_mask:
                 tgt_mask = (torch.diag(sampled_rel_pred_exists) != 0)
-                attend_ids = sampled_rel_pred_exists.sort(descending=True)[1][:self.use_relation_tgt_mask_attend_topk]
+                attend_ids = sampled_rel_pred_exists.sort(descending=True)[1][:self.args.use_relation_tgt_mask_attend_topk]
                 tgt_mask[:, attend_ids] = True
                 tgt_mask = tgt_mask.float().masked_fill(tgt_mask == 0, float('-inf')).masked_fill(tgt_mask == 1, float(0.0))
 
