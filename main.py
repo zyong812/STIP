@@ -26,8 +26,9 @@ from hotr.engine import hoi_evaluator, hoi_accumulator
 from hotr.models import build_model
 import wandb
 from hotr.engine.evaluator_coco import coco_evaluate
-
+from collections import OrderedDict
 from hotr.util.logger import print_params, print_args
+from hotr.engine.hico_det_evaluate import hico_det_evaluate
 
 def save_ckpt(args, model_without_ddp, optimizer, lr_scheduler, epoch, filename):
     # save_ckpt: function for saving checkpoints
@@ -128,7 +129,15 @@ def main(args):
                 args.resume, map_location='cpu', check_hash=True)
         else:
             checkpoint = torch.load(args.resume, map_location='cpu')
-        model_without_ddp.load_state_dict(checkpoint['model'])
+
+        if 'hico_ft_q16.pth' in args.resume: # hack: for loading hico fine-tuned detr
+            mapped_state_dict = OrderedDict()
+            for k, v in checkpoint['model'].items():
+                if k.startswith('detr.'):
+                    mapped_state_dict[k.replace('detr.', '')] = v
+            model_without_ddp.load_state_dict(mapped_state_dict)
+        else:
+            model_without_ddp.load_state_dict(checkpoint['model'])
 
     if args.eval:
         # test only mode
@@ -144,12 +153,15 @@ def main(args):
             else: raise ValueError(f'dataset {args.dataset_file} is not supported.')
             return
         else:
-            # check original detr code
-            base_ds = get_coco_api_from_dataset(data_loader_val)
-            test_stats, coco_evaluator = coco_evaluate(model, criterion, postprocessors,
-                                                  data_loader_val, base_ds, device, args.output_dir)
-            if args.output_dir:
-                utils.save_on_master(coco_evaluator.coco_eval["bbox"].eval, args.output_dir / "eval.pth")
+            if args.dataset_file == 'hico-det':
+                hico_det_evaluate(model, postprocessors, data_loader_val, device, args)
+            else:
+                # check original detr code
+                base_ds = get_coco_api_from_dataset(data_loader_val)
+                test_stats, coco_evaluator = coco_evaluate(model, criterion, postprocessors,
+                                                      data_loader_val, base_ds, device, args.output_dir)
+                if args.output_dir:
+                    utils.save_on_master(coco_evaluator.coco_eval["bbox"].eval, args.output_dir / "eval.pth")
             return
 
     # stats
@@ -191,20 +203,23 @@ def main(args):
                     print(f'| Scenario #1 mAP : {sc1:.2f} ({scenario1:.2f})')
                     print(f'| Scenario #2 mAP : {sc2:.2f} ({scenario2:.2f})')
             elif args.dataset_file == 'hico-det':
-                test_stats = hoi_evaluator(args, model, None, postprocessors, data_loader_val, device)
-                if utils.get_rank() == 0:
-                    if test_stats['mAP'] > best_mAP:
-                        best_mAP = test_stats['mAP']
-                        best_rare = test_stats['mAP rare']
-                        best_non_rare = test_stats['mAP non-rare']
-                        save_ckpt(args, model_without_ddp, optimizer, lr_scheduler, epoch, filename='best')
-                    print(f'| mAP (full)\t\t: {test_stats["mAP"]:.2f} ({best_mAP:.2f})')
-                    print(f'| mAP (rare)\t\t: {test_stats["mAP rare"]:.2f} ({best_rare:.2f})')
-                    print(f'| mAP (non-rare)\t: {test_stats["mAP non-rare"]:.2f} ({best_non_rare:.2f})')
-                    if args.wandb and utils.get_rank() == 0:
-                        wandb.log({
-                            'mAP': test_stats['mAP']
-                        })
+                if args.HOIDet:
+                    test_stats = hoi_evaluator(args, model, None, postprocessors, data_loader_val, device)
+                    if utils.get_rank() == 0:
+                        if test_stats['mAP'] > best_mAP:
+                            best_mAP = test_stats['mAP']
+                            best_rare = test_stats['mAP rare']
+                            best_non_rare = test_stats['mAP non-rare']
+                            save_ckpt(args, model_without_ddp, optimizer, lr_scheduler, epoch, filename='best')
+                        print(f'| mAP (full)\t\t: {test_stats["mAP"]:.2f} ({best_mAP:.2f})')
+                        print(f'| mAP (rare)\t\t: {test_stats["mAP rare"]:.2f} ({best_rare:.2f})')
+                        print(f'| mAP (non-rare)\t: {test_stats["mAP non-rare"]:.2f} ({best_non_rare:.2f})')
+                        if args.wandb and utils.get_rank() == 0:
+                            wandb.log({
+                                'mAP': test_stats['mAP']
+                            })
+                else:
+                    hico_det_evaluate(model, postprocessors, data_loader_val, device, args)
             print('-'*100)
 
         if epoch%5==0:

@@ -48,7 +48,7 @@ class DETR(nn.Module):
         self.backbone = backbone
         self.aux_loss = aux_loss
 
-    def forward(self, samples: NestedTensor):
+    def forward(self, samples: NestedTensor, targets=None):
         """ The forward expects a NestedTensor, which consists of:
                - samples.tensor: batched images, of shape [batch_size x 3 x H x W]
                - samples.mask: a binary mask of shape [batch_size x H x W], containing 1 on padded pixels
@@ -159,7 +159,7 @@ def build(args):
         postprocessors = {'hoi': PostProcess(args.HOIDet)}
     else:
         criterion = SetCriterion(args.num_classes, matcher=matcher, weight_dict=weight_dict,
-                                 eos_coef=args.eos_coef, losses=losses)
+                                 eos_coef=args.eos_coef, losses=losses, num_actions=args.num_actions, args=args)
         postprocessors = {'bbox': PostProcess(args.HOIDet)}
     criterion.to(device)
 
