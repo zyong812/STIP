@@ -79,7 +79,7 @@ class HICOEvaluator():
             pred_hois = img_preds['hoi_prediction']
             gt_hois = img_gts['hoi_annotation']
             if len(gt_bboxes) != 0:
-                bbox_pairs, bbox_overlaps = self.compute_iou_mat(gt_bboxes, pred_bboxes)
+                bbox_pairs, bbox_overlaps = self.compute_iou_mat(gt_bboxes, pred_bboxes) # 匹配 label 和 box
                 self.compute_fptp(pred_hois, gt_hois, bbox_pairs, pred_bboxes, bbox_overlaps)
             else:
                 for pred_hoi in pred_hois:
@@ -99,6 +99,8 @@ class HICOEvaluator():
         rare_ap = defaultdict(lambda: 0)
         non_rare_ap = defaultdict(lambda: 0)
         max_recall = defaultdict(lambda: 0)
+        rare_recall = defaultdict(lambda: 0)
+        non_rare_recall = defaultdict(lambda: 0)
         for triplet in self.gt_triplets:
             sum_gts = self.sum_gts[triplet]
             if sum_gts == 0:
@@ -111,8 +113,10 @@ class HICOEvaluator():
                 max_recall[triplet] = 0
                 if triplet in self.rare_triplets:
                     rare_ap[triplet] = 0
+                    rare_recall[triplet] = 0
                 elif triplet in self.non_rare_triplets:
                     non_rare_ap[triplet] = 0
+                    non_rare_recall[triplet] = 0
                 else:
                     print('Warning: triplet {} is neither in rare triplets nor in non-rare triplets'.format(triplet))
                 continue
@@ -129,14 +133,24 @@ class HICOEvaluator():
             max_recall[triplet] = np.amax(rec)
             if triplet in self.rare_triplets:
                 rare_ap[triplet] = ap[triplet]
+                rare_recall[triplet] = max_recall[triplet]
             elif triplet in self.non_rare_triplets:
                 non_rare_ap[triplet] = ap[triplet]
+                non_rare_recall[triplet] = max_recall[triplet]
             else:
                 print('Warning: triplet {} is neither in rare triplets nor in non-rare triplets'.format(triplet))
         m_ap = np.mean(list(ap.values())) * 100 # percentage
         m_ap_rare = np.mean(list(rare_ap.values())) * 100 # percentage
         m_ap_non_rare = np.mean(list(non_rare_ap.values())) * 100 # percentage
-        m_max_recall = np.mean(list(max_recall.values()))
+
+        m_max_recall = np.mean(list(max_recall.values())) * 100
+        m_r_rare = np.mean(list(rare_recall.values())) * 100
+        m_r_non_rare = np.mean(list(non_rare_recall.values())) * 100
+
+        print('--------------------')
+        print('mAP: {} mAP rare: {}  mAP non-rare: {}'.format(m_ap, m_ap_rare, m_ap_non_rare))
+        print('mR: {} mR rare: {}  mR non-rare: {}'.format(m_max_recall, m_r_rare, m_r_non_rare))
+        print('--------------------')
 
         return {'mAP': m_ap, 'mAP rare': m_ap_rare, 'mAP non-rare': m_ap_non_rare, 'mean max recall': m_max_recall}
 
@@ -166,22 +180,20 @@ class HICOEvaluator():
                     max_overlap = 0
                     max_gt_hoi = 0
                     for gt_hoi in gt_hois:
-                        if gt_hoi['subject_id'] in pred_sub_ids and gt_hoi['object_id'] in pred_obj_ids \
-                           and pred_category_id == gt_hoi['category_id']:
+                        if gt_hoi['subject_id'] in pred_sub_ids and gt_hoi['object_id'] in pred_obj_ids and pred_category_id == gt_hoi['category_id']:
                             is_match = 1
                             min_overlap_gt = min(pred_sub_overlaps[pred_sub_ids.index(gt_hoi['subject_id'])],
                                                  pred_obj_overlaps[pred_obj_ids.index(gt_hoi['object_id'])])
                             if min_overlap_gt > max_overlap:
                                 max_overlap = min_overlap_gt
                                 max_gt_hoi = gt_hoi
-                triplet = (pred_bboxes[pred_hoi['subject_id']]['category_id'], pred_bboxes[pred_hoi['object_id']]['category_id'],
-                           pred_hoi['category_id'])
+                triplet = (pred_bboxes[pred_hoi['subject_id']]['category_id'], pred_bboxes[pred_hoi['object_id']]['category_id'], pred_hoi['category_id'])
                 if triplet not in self.gt_triplets:
                     continue
                 if is_match == 1 and vis_tag[gt_hois.index(max_gt_hoi)] == 0:
                     self.fp[triplet].append(0)
                     self.tp[triplet].append(1)
-                    vis_tag[gt_hois.index(max_gt_hoi)] =1
+                    vis_tag[gt_hois.index(max_gt_hoi)] = 1
                 else:
                     self.fp[triplet].append(1)
                     self.tp[triplet].append(0)

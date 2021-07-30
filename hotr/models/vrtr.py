@@ -429,9 +429,6 @@ class VRTRPostProcess(nn.Module):
         assert len(out_logits) == len(target_sizes)
         assert target_sizes.shape[1] == 2
 
-        prob = F.softmax(out_logits, -1)
-        scores, labels = prob[..., :-1].max(-1)
-
         boxes = box_ops.box_cxcywh_to_xyxy(out_bbox)
         img_h, img_w = target_sizes.unbind(1)
         scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1)
@@ -441,6 +438,9 @@ class VRTRPostProcess(nn.Module):
         h_indices = outputs['pred_rel_pairs'][:,:,0]
         o_indices = outputs['pred_rel_pairs'][:,:,1]
         if dataset == 'vcoco':
+            prob = F.softmax(out_logits, -1)
+            scores, labels = prob[..., :-1].max(-1)
+
             pair_actions = outputs['pred_actions'].sigmoid()
             # pair_actions = outputs['pred_actions'].sigmoid() * outputs['pred_action_exists'].sigmoid() # cls_score ＊　interactiveness score
 
@@ -483,10 +483,10 @@ class VRTRPostProcess(nn.Module):
             _valid_obj_ids = self.args.valid_obj_ids + [self.args.valid_obj_ids[-1]+1]
             out_obj_logits = outputs['pred_logits'][..., _valid_obj_ids]
             out_obj_logits = torch.stack([lgts[o_ids] for o_ids, lgts in zip(o_indices, out_obj_logits)], dim=0)
-            out_verb_logits = outputs['pred_actions']
             obj_scores, obj_labels = F.softmax(out_obj_logits, -1)[..., :-1].max(-1)
 
             # actions
+            out_verb_logits = outputs['pred_actions']
             verb_scores = out_verb_logits.sigmoid()
             # verb_scores = out_verb_logits.sigmoid() * outputs['pred_action_exists'].sigmoid().unsqueeze(-1) # interactiveness
 
