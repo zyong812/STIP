@@ -99,8 +99,10 @@ def main(args):
     # only fine-tune partial modules
     if args.finetune_detr:
         for n, p in model.named_parameters():
-            if n.startswith('backbone.') or n.startswith('input_proj.') or n.startswith('transformer.encoder'):
+            if n.startswith('backbone.') or n.startswith('input_proj.') or n.startswith('transformer.') or n.startswith('query_embed'):
                 p.requires_grad_(False)
+            else:
+                print(f'finetune -> {n}')
 
     model_without_ddp = model
     if args.distributed:
