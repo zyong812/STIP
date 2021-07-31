@@ -509,7 +509,8 @@ class VRTRPostProcess(nn.Module):
                     'verb_scores': vs.to('cpu'),
                     'sub_ids': ids[:ids.shape[0] // 2],
                     'obj_ids': ids[ids.shape[0] // 2:],
-                    'hoi_recognition_time': 0
+                    'hoi_recognition_time': 0,
+                    'orig_size': torch.tensor([img_h[batch_idx], img_w[batch_idx]])
                 }
                 results.append(res_dict)
 
