@@ -22,7 +22,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     space_fmt = str(len(str(max_epoch)))
     header = 'Epoch [{start_epoch: >{fill}}/{end_epoch}]'.format(start_epoch=epoch+1, end_epoch=max_epoch, fill=space_fmt)
-    print_freq = int(len(data_loader)/100)
+    print_freq = int(len(data_loader)/50)
 
     print(f"\n>>> Epoch #{(epoch+1)}")
     for samples, targets in metric_logger.log_every(data_loader, print_freq, header):

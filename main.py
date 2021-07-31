@@ -96,6 +96,12 @@ def main(args):
     model, criterion, postprocessors = build_model(args)
     model.to(device)
 
+    # only fine-tune partial modules
+    if args.finetune_detr:
+        for n, p in model.named_parameters():
+            if n.startswith('backbone.') or n.startswith('input_proj.') or n.startswith('transformer.encoder'):
+                p.requires_grad_(False)
+
     model_without_ddp = model
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
@@ -222,7 +228,7 @@ def main(args):
                     hico_det_evaluate(model, postprocessors, data_loader_val, device, args)
             print('-'*100)
 
-        if epoch%5==0:
+        if epoch%2==0:
             save_ckpt(args, model_without_ddp, optimizer, lr_scheduler, epoch, filename=f'checkpoint_{epoch}')
 
     total_time = time.time() - start_time
