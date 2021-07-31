@@ -230,7 +230,7 @@ def main(args):
                     hico_det_evaluate(model, postprocessors, data_loader_val, device, args)
             print('-'*100)
 
-        if epoch%2==0:
+        if epoch%1==0:
             save_ckpt(args, model_without_ddp, optimizer, lr_scheduler, epoch, filename=f'checkpoint_{epoch}')
 
     total_time = time.time() - start_time
