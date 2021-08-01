@@ -106,7 +106,7 @@ class VRTR(nn.Module):
 
         for imgid in range(bs):
             # >>>>>>>>>>>> relation proposal <<<<<<<<<<<<<<<
-            inst_labels = outputs_class[-1, imgid].max(-1)[-1]
+            inst_labels = outputs_class[-1, imgid, :, :-1].argmax(-1) # todo: thresholding score
             rel_mat = torch.zeros((num_nodes, num_nodes))
             rel_mat[inst_labels==1] = 1 # subj is human
 
