@@ -106,16 +106,21 @@ class VRTR(nn.Module):
 
         for imgid in range(bs):
             # >>>>>>>>>>>> relation proposal <<<<<<<<<<<<<<<
-            inst_labels = outputs_class[-1, imgid, :, :-1].argmax(-1) # todo: thresholding score
+            probs = outputs_class[-1, imgid].softmax(-1)
+            inst_scores, inst_labels = probs.max(-1)
+            human_instance_ids = torch.logical_and(inst_scores > 0.5, inst_labels==1).nonzero(as_tuple=False)
+            bg_instance_ids = (probs[:, -1] > 0.5)
+
             rel_mat = torch.zeros((num_nodes, num_nodes))
-            rel_mat[inst_labels==1] = 1 # subj is human
+            rel_mat[human_instance_ids, ~bg_instance_ids] = 1 # subj is human, obj is not background
+            if len(rel_mat.nonzero(as_tuple=False)) < self.args.num_hoi_queries: # ensure enough queries
+                tmp_id = np.random.choice(human_instance_ids.squeeze().tolist()) if len(human_instance_ids) > 0 else 0
+                rel_mat[tmp_id] = 1
 
             if self.training:
-                rel_mat[gt_rel_pairs[imgid][:,0].unique()] = 1
+                rel_mat[gt_rel_pairs[imgid][:,:1], ~bg_instance_ids] = 1
                 rel_mat[gt_rel_pairs[imgid][:,0], gt_rel_pairs[imgid][:, 1]] = 0
                 rel_pairs = rel_mat.nonzero(as_tuple=False) # neg pairs
-                if len(rel_pairs) == 0: # when no rel sampled
-                    rel_pairs = (rel_mat == 0).nonzero(as_tuple=False) # just placeholders
 
                 if self.args.hard_negative_relation_sampling:
                     # hard negative sampling
@@ -139,8 +144,6 @@ class VRTR(nn.Module):
                     sampled_rel_pred_exists = self.relation_proposal_mlp(sampled_rel_reps).squeeze()
             else:
                 rel_pairs = rel_mat.nonzero(as_tuple=False)
-                if len(rel_pairs) == 0:
-                    rel_pairs = (rel_mat == 0).nonzero(as_tuple=False) # just placeholders
                 rel_reps = self.union_box_feature_extractor(rel_pairs, relation_feature_map, outputs_coord[-1, imgid].detach(), inst_repr[imgid], idx=imgid)
                 p_relation_exist_logits = self.relation_proposal_mlp(rel_reps).squeeze()
 
@@ -494,7 +497,7 @@ class VRTRPostProcess(nn.Module):
             results = []
             for batch_idx, (os, ol, vs, box, h_idx, o_idx) in enumerate(zip(obj_scores, obj_labels, verb_scores, boxes, h_indices, o_indices)):
                 # label
-                sl = torch.full_like(ol, 0) # self.subject_category_id = 0 in HICO-DET. todo: filter subj not human
+                sl = torch.full_like(ol, 0) # self.subject_category_id = 0 in HICO-DET
                 l = torch.cat((sl, ol))
                 # boxes
                 sb = box[h_idx, :]
@@ -513,6 +516,8 @@ class VRTRPostProcess(nn.Module):
                     'orig_size': torch.tensor([img_h[batch_idx], img_w[batch_idx]])
                 }
                 results.append(res_dict)
+
+                ## visualization
 
         return results
 
