@@ -71,8 +71,6 @@ class HICOEvaluator():
 
                 self.sum_gts[triplet] += 1
 
-        ## todo: visualize predicted results
-
     def evaluate(self):
         for img_id, (img_preds, img_gts) in enumerate(zip(self.preds, self.gts)):
             print(f"Evaluating Score Matrix... : [{(img_id+1):>4}/{len(self.gts):<4}]" ,flush=True, end="\r")
