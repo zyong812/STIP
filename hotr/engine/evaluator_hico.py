@@ -11,7 +11,7 @@ import torch
 import hotr.util.misc as utils
 import hotr.util.logger as loggers
 from hotr.data.evaluators.hico_eval import HICOEvaluator
-from hotr.util.box_ops import box_cxcywh_to_xyxy, generalized_box_iou
+from hotr.models.vrtr_utils import check_annotation
 
 @torch.no_grad()
 def hico_evaluate(model, postprocessors, data_loader, device, thr):
@@ -38,7 +38,7 @@ def hico_evaluate(model, postprocessors, data_loader, device, thr):
         # For avoiding a runtime error, the copy is used
         gts.extend(list(itertools.chain.from_iterable(utils.all_gather(copy.deepcopy(targets)))))
 
-        # check_res(samples, targets, rel_num=20)
+        # check_annotation(samples, targets, mode='eval', rel_num=20)
 
     print(f"[stats] HOI Recognition Time (avg) : {sum(hoi_recognition_time)/len(hoi_recognition_time):.4f} ms")
 
@@ -57,44 +57,3 @@ def hico_evaluate(model, postprocessors, data_loader, device, thr):
 
     return stats
 
-
-# visualize results
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-import matplotlib.patheffects as PathEffects
-def check_res(samples, res, rel_num=20):
-    img_tensors, img_masks = samples.decompose()
-    h, w = (img_masks[0].float() < 1).nonzero(as_tuple=False).max(0)[0].cpu() + 1
-
-    img_tensor = img_tensors[0,:,:h,:w].cpu().permute(1,2,0)
-    img_tensor = (img_tensor - img_tensor.min()) / (img_tensor.max() - img_tensor.min())
-
-    res = res[0]
-    org_h, org_w = res['orig_size'].cpu().float()
-    boxes = res['boxes'].cpu()
-    boxes = boxes * torch.tensor([w/org_w, h/org_h, w/org_w, h/org_h]).unsqueeze(0)
-    vg_obj_names = []
-    for ind, x in enumerate(res['labels']):
-        # vg_obj_names.append(f"{dataset.ind_to_classes[x]}({ind})")
-        vg_obj_names.append(f"class{x}({ind})")
-
-    rel_pairs = []
-    rel_pairs = res['hois'][:rel_num, :2].cpu()
-    rel_labels = res['hois'][:rel_num, 2].cpu()
-
-    # list relations
-    rel_strs = ''
-    for i, rel in enumerate(rel_pairs): # print relation triplets
-        rel_strs += (f"{vg_obj_names[rel[0]]} ---{rel_labels[i]}----> {vg_obj_names[rel[1]]}\n")
-
-    # draw images
-    plt.imshow(img_tensor)
-    for ind, bbox in enumerate(boxes):
-        x1, y1, x2, y2 = bbox
-        rect = patches.Rectangle((x1,y1), x2-x1+1, y2-y1+1, linewidth=1, edgecolor='r', facecolor='none')
-        plt.gca().add_patch(rect)
-        txt = plt.text(x1-10, y1-10, vg_obj_names[ind], color='black')
-        txt.set_path_effects([PathEffects.withStroke(linewidth=5, foreground='w')])
-    plt.gca().yaxis.set_label_position("right")
-    plt.ylabel(rel_strs, rotation=0, labelpad=140, fontsize=8, loc='top')
-    plt.show()
