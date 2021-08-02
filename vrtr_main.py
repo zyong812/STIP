@@ -258,8 +258,8 @@ if __name__ == '__main__':
     parser.add_argument('--action_focal_loss_alpha', default=0.5, type=float)
     parser.add_argument('--proposal_focal_loss_gamma', default=2, type=float)
     parser.add_argument('--action_focal_loss_gamma', default=2, type=float)
-    parser.add_argument('--proposal_loss_coef', default=10, type=float)
-    parser.add_argument('--action_loss_coef', default=10, type=float)
+    parser.add_argument('--proposal_loss_coef', default=1, type=float)
+    parser.add_argument('--action_loss_coef', default=1, type=float)
 
     # model
     parser.add_argument('--use_memory_union_mask', action='store_true', default=False)

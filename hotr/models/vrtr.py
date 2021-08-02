@@ -382,26 +382,26 @@ class VRTRCriterion(nn.Module):
             all_rel_pair_targets.append(rel_pair_targets)
         all_rel_pair_targets = torch.stack(all_rel_pair_targets, dim=0)
 
+        action_class_weights = None
         if self.args.dataset_file == 'hico-det':
             no_interaction_id = self.args.action_names.index('no_interaction')
-            no_interaction_onehot = torch.zeros((1, len(self.valid_ids))).to(all_rel_pair_targets.device); no_interaction_onehot[0, no_interaction_id] = 1
             rel_proposal_targets = (all_rel_pair_targets[..., self.valid_ids].sum(-1) - all_rel_pair_targets[..., no_interaction_id] > 0).float()
-            all_rel_pair_targets[rel_proposal_targets<1] = torch.max(all_rel_pair_targets[rel_proposal_targets<1], no_interaction_onehot)
-
-            action_pos_class_weights = torch.ones(len(self.valid_ids)).to(all_rel_pair_targets.device) * len(self.valid_ids)
-            action_pos_class_weights[no_interaction_id] = 1
+            # no_interaction_onehot = torch.zeros((1, len(self.valid_ids))).to(all_rel_pair_targets.device); no_interaction_onehot[0, no_interaction_id] = 1
+            # all_rel_pair_targets[rel_proposal_targets<1] = torch.max(all_rel_pair_targets[rel_proposal_targets<1], no_interaction_onehot) # ambigious class
+            # action_class_weights = torch.ones(len(self.valid_ids)).to(all_rel_pair_targets.device)
+            # action_class_weights[no_interaction_id] = self.args.hoi_eos_coef
         else:
             rel_proposal_targets = (all_rel_pair_targets[..., self.valid_ids].sum(-1) > 0).float()
-            action_pos_class_weights = torch.ones(len(self.valid_ids)).to(all_rel_pair_targets.device) * len(self.valid_ids)
+
 
         # loss_proposal = F.binary_cross_entropy_with_logits(outputs['pred_action_exists'], rel_proposal_targets)
         loss_proposal = focal_loss(outputs['pred_action_exists'], rel_proposal_targets, gamma=self.args.proposal_focal_loss_gamma, alpha=self.args.proposal_focal_loss_alpha) # loss proposals
-        loss_action = focal_loss(outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], gamma=self.args.action_focal_loss_gamma, alpha=self.args.action_focal_loss_alpha, class_weights=action_pos_class_weights)
+        loss_action = focal_loss(outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], gamma=self.args.action_focal_loss_gamma, alpha=self.args.action_focal_loss_alpha, class_weights=action_class_weights)
 
         loss_dict = {'loss_proposal': loss_proposal, 'loss_act': loss_action}
         if 'hoi_aux_outputs' in outputs:
             for i, aux_outputs in enumerate(outputs['hoi_aux_outputs']):
-                aux_loss = {f'loss_act_{i}': focal_loss(aux_outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], gamma=self.args.action_focal_loss_gamma, alpha=self.args.action_focal_loss_alpha, class_weights=action_pos_class_weights)}
+                aux_loss = {f'loss_act_{i}': focal_loss(aux_outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], gamma=self.args.action_focal_loss_gamma, alpha=self.args.action_focal_loss_alpha, class_weights=action_class_weights)}
                 loss_dict.update(aux_loss)
 
         # jointly train objects and relation decoder
@@ -621,14 +621,14 @@ class RelationFeatureExtractor(nn.Module):
 
 def focal_loss(blogits, target_classes, alpha=0.5, gamma=2, class_weights=None):
     probs = blogits.sigmoid() # prob(positive)
-    loss_bce = F.binary_cross_entropy_with_logits(blogits, target_classes, reduction='none', pos_weight=class_weights)
+    loss_bce = F.binary_cross_entropy_with_logits(blogits, target_classes, reduction='none', weight=class_weights)
     p_t = probs * target_classes + (1 - probs) * (1 - target_classes)
     loss_bce = ((1-p_t)**gamma * loss_bce)
 
     alpha_t = alpha * target_classes + (1 - alpha) * (1 - target_classes)
     loss_focal = alpha_t * loss_bce
 
-    loss = loss_focal.mean()
+    loss = loss_focal.sum() / max(target_classes.sum(), 1)
     return loss
 
 def make_fc(dim_in, hidden_dim, a=1):
