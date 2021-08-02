@@ -109,12 +109,12 @@ class VRTR(nn.Module):
             probs = outputs_class[-1, imgid].softmax(-1)
             inst_scores, inst_labels = probs.max(-1)
             human_instance_ids = torch.logical_and(inst_scores > 0.5, inst_labels==1).nonzero(as_tuple=False)
-            bg_instance_ids = (probs[:, -1] > 0.5)
+            bg_instance_ids = (probs[:, -1] > 0.8)
 
             rel_mat = torch.zeros((num_nodes, num_nodes))
             rel_mat[human_instance_ids, ~bg_instance_ids] = 1 # subj is human, obj is not background
             if len(rel_mat.nonzero(as_tuple=False)) < self.args.num_hoi_queries: # ensure enough queries
-                tmp_id = np.random.choice(human_instance_ids.squeeze().tolist()) if len(human_instance_ids) > 0 else 0
+                tmp_id = np.random.choice(human_instance_ids.squeeze(1).tolist()) if len(human_instance_ids) > 0 else 0
                 rel_mat[tmp_id] = 1
 
             if self.training:
