@@ -6,13 +6,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from hotr.util.misc import NestedTensor, nested_tensor_from_tensor_list
-from .feed_forward import MLP
 from torchvision.ops import roi_align
 from .transformer import TransformerDecoderLayer, TransformerDecoder
 from hotr.util import box_ops
 import numpy as np
 import matplotlib.pyplot as plt
 from hotr.util.misc import accuracy, is_dist_avail_and_initialized, get_world_size
+from hotr.models.vrtr_utils import check_annotation
 
 # sequential visual relationship transformer
 class VRTR(nn.Module):
@@ -92,7 +92,9 @@ class VRTR(nn.Module):
                 perm = torch.randperm(len(gt_rels))
 
                 gt_rel_pairs.append(gt_rels[perm])
-                if len(gt_rel_pairs[-1]) > self.args.num_hoi_queries: print(f"imageid={t['image_id']}, gt_relation_count={len(gt_rel_pairs[-1])}")
+                if len(gt_rel_pairs[-1]) > self.args.num_hoi_queries:
+                    print(f"imageid={t['image_id']}, gt_relation_count={len(gt_rel_pairs[-1])}")
+                    # check_annotation(samples, targets, rel_num=20, idx=0)
 
         # >>>>>>>>>>>> HOI DETECTION LAYERS <<<<<<<<<<<<<<<
         pred_rel_exists, pred_rel_pairs, pred_actions = [], [], []
@@ -108,8 +110,8 @@ class VRTR(nn.Module):
             # >>>>>>>>>>>> relation proposal <<<<<<<<<<<<<<<
             probs = outputs_class[-1, imgid].softmax(-1)
             inst_scores, inst_labels = probs.max(-1)
-            human_instance_ids = torch.logical_and(inst_scores > 0.5, inst_labels==1).nonzero(as_tuple=False)
-            bg_instance_ids = (probs[:, -1] > 0.8)
+            human_instance_ids = (inst_labels==1).nonzero(as_tuple=False)
+            bg_instance_ids = (probs[:, -1] > 0.9)
 
             rel_mat = torch.zeros((num_nodes, num_nodes))
             rel_mat[human_instance_ids, ~bg_instance_ids] = 1 # subj is human, obj is not background
