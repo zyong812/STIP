@@ -79,9 +79,12 @@ class HICODetection(torch.utils.data.Dataset):
         img = Image.open(self.img_folder / img_anno['file_name']).convert('RGB')
         w, h = img.size
 
-        # cut out the GTs that exceed the number of object queries
-        if self.img_set == 'train' and len(img_anno['annotations']) > self.num_queries:
-            img_anno['annotations'] = img_anno['annotations'][:self.num_queries]
+        # # cut out the GTs that exceed the number of object queries
+        # if self.img_set == 'train' and len(img_anno['annotations']) > self.num_queries:
+        #     img_anno['annotations'] = img_anno['annotations'][:self.num_queries]
+
+        if self.img_set == 'train':
+            img_anno = merge_box_annotations(img_anno)
 
         boxes = [obj['bbox'] for obj in img_anno['annotations']]
         # guard against no boxes via resizing
@@ -232,6 +235,75 @@ def make_hico_transforms(image_set):
 
     raise ValueError(f'unknown {image_set}')
 
+
+def merge_box_annotations(org_image_annotation, overlap_iou_thres=0.7):
+    merged_image_annotation = org_image_annotation.copy()
+
+    # compute match
+    bbox_list = org_image_annotation['annotations']
+    box_match = torch.zeros(len(bbox_list), len(bbox_list)).bool()
+    for i, bbox1 in enumerate(bbox_list):
+        for j, bbox2 in enumerate(bbox_list):
+            box_match[i, j] = compute_box_match(bbox1, bbox2, overlap_iou_thres)
+
+    box_groups = []
+    for i in range(len(box_match)):
+        if box_match[i].any():  # box unassigned to group
+            group_ids = box_match[i].nonzero(as_tuple=False).squeeze(1)
+            box_groups.append(group_ids.tolist())
+            box_match[:, group_ids] = False
+    assert sum([len(g) for g in box_groups]) == len(bbox_list)
+
+    # merge to new anntations
+    group_info, orgbox2group = [], {}
+    for gid, org_box_ids in enumerate(box_groups):
+        for orgid in org_box_ids: orgbox2group.update({orgid: gid})
+        selected_box_id = np.random.choice(org_box_ids)
+        group_info.append(bbox_list[selected_box_id])
+
+    new_hois = []
+    for hoi in org_image_annotation['hoi_annotation']:
+        new_hois.append({
+            'subject_id': orgbox2group[hoi['subject_id']],
+            'object_id': orgbox2group[hoi['object_id']],
+            'category_id': hoi['category_id']
+        })
+
+    merged_image_annotation['annotations'] = group_info
+    merged_image_annotation['hoi_annotation'] = new_hois
+    return merged_image_annotation
+
+# iou > threshold and same category
+def compute_box_match(bbox1, bbox2, threshold):
+    if isinstance(bbox1['category_id'], str):
+        bbox1['category_id'] = int(bbox1['category_id'].replace('\n', ''))
+    if isinstance(bbox2['category_id'], str):
+        bbox2['category_id'] = int(bbox2['category_id'].replace('\n', ''))
+    if bbox1['category_id'] != bbox2['category_id']:
+        return False
+    else:
+        rec1 = bbox1['bbox']
+        rec2 = bbox2['bbox']
+        # computing area of each rectangles
+        S_rec1 = (rec1[2] - rec1[0]+1) * (rec1[3] - rec1[1]+1)
+        S_rec2 = (rec2[2] - rec2[0]+1) * (rec2[3] - rec2[1]+1)
+
+        # computing the sum_area
+        sum_area = S_rec1 + S_rec2
+
+        # find the each edge of intersect rectangle
+        left_line = max(rec1[1], rec2[1])
+        right_line = min(rec1[3], rec2[3])
+        top_line = max(rec1[0], rec2[0])
+        bottom_line = min(rec1[2], rec2[2])
+
+        # judge if there is an intersect
+        intersect = max((right_line - left_line+1), 0) * max((bottom_line - top_line+1), 0)
+        iou = intersect / (sum_area - intersect)
+        if iou > threshold:
+            return True
+        else:
+            return False
 
 def build(image_set, args):
     root = Path(args.data_path)

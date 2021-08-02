@@ -38,8 +38,7 @@ def hico_evaluate(model, postprocessors, data_loader, device, thr):
         # For avoiding a runtime error, the copy is used
         gts.extend(list(itertools.chain.from_iterable(utils.all_gather(copy.deepcopy(targets)))))
 
-        # check_res(samples, targets, type='annotation', rel_num=20)
-        # check_res(samples, results, type='prediction', rel_num=20)
+        # check_res(samples, targets, rel_num=20)
 
     print(f"[stats] HOI Recognition Time (avg) : {sum(hoi_recognition_time)/len(hoi_recognition_time):.4f} ms")
 
@@ -63,9 +62,9 @@ def hico_evaluate(model, postprocessors, data_loader, device, thr):
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.patheffects as PathEffects
-def check_res(samples, res, type='annotation', rel_num=20):
+def check_res(samples, res, rel_num=20):
     img_tensors, img_masks = samples.decompose()
-    h, w = (img_masks[0].float() < 1).nonzero().max(0)[0].cpu() + 1
+    h, w = (img_masks[0].float() < 1).nonzero(as_tuple=False).max(0)[0].cpu() + 1
 
     img_tensor = img_tensors[0,:,:h,:w].cpu().permute(1,2,0)
     img_tensor = (img_tensor - img_tensor.min()) / (img_tensor.max() - img_tensor.min())
@@ -80,21 +79,8 @@ def check_res(samples, res, type='annotation', rel_num=20):
         vg_obj_names.append(f"class{x}({ind})")
 
     rel_pairs = []
-    if type == 'annotation':
-        res = res[0]
-        org_h, org_w = res['orig_size'].cpu().float()
-        boxes = res['boxes'].cpu()
-        boxes = boxes * torch.tensor([w/org_w, h/org_h, w/org_w, h/org_h]).unsqueeze(0)
-        vg_obj_names = []
-        for ind, x in enumerate(res['labels']):
-            # vg_obj_names.append(f"{dataset.ind_to_classes[x]}({ind})")
-            vg_obj_names.append(f"class{x}({ind})")
-
-        rel_pairs = res['hois'][:rel_num, :2].cpu()
-        rel_labels = res['hois'][:rel_num, 2].cpu()
-    elif type == 'prediction':
-        rel_pairs = torch.stack([res['sub_ids'], res['obj_ids']], dim=0).cpu()
-        rel_labels = res['hois'][:rel_num, 2].cpu()
+    rel_pairs = res['hois'][:rel_num, :2].cpu()
+    rel_labels = res['hois'][:rel_num, 2].cpu()
 
     # list relations
     rel_strs = ''
@@ -109,7 +95,6 @@ def check_res(samples, res, type='annotation', rel_num=20):
         plt.gca().add_patch(rect)
         txt = plt.text(x1-10, y1-10, vg_obj_names[ind], color='black')
         txt.set_path_effects([PathEffects.withStroke(linewidth=5, foreground='w')])
-    plt.title(type)
     plt.gca().yaxis.set_label_position("right")
     plt.ylabel(rel_strs, rotation=0, labelpad=140, fontsize=8, loc='top')
     plt.show()
