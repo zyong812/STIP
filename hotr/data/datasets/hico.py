@@ -42,7 +42,7 @@ class HICODetection(torch.utils.data.Dataset):
                     self.ids.append(idx)
         else:
             self.ids = list(range(len(self.annotations)))
-        # self.ids = self.ids[:100]
+        # self.ids = self.ids[::10]
 
     ############################################################################
     # Number Method
@@ -263,11 +263,12 @@ def merge_box_annotations(org_image_annotation, overlap_iou_thres=0.7):
 
     new_hois = []
     for hoi in org_image_annotation['hoi_annotation']:
-        new_hois.append({
-            'subject_id': orgbox2group[hoi['subject_id']],
-            'object_id': orgbox2group[hoi['object_id']],
-            'category_id': hoi['category_id']
-        })
+        if hoi['subject_id'] in orgbox2group and hoi['object_id'] in orgbox2group:
+            new_hois.append({
+                'subject_id': orgbox2group[hoi['subject_id']],
+                'object_id': orgbox2group[hoi['object_id']],
+                'category_id': hoi['category_id']
+            })
 
     merged_image_annotation['annotations'] = group_info
     merged_image_annotation['hoi_annotation'] = new_hois
