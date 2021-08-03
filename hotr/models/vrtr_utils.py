@@ -457,6 +457,16 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.patheffects as PathEffects
 from hotr.util import box_ops
+
+
+# 91
+coco_obj_names = ['N/A', 'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light', 'fire hydrant', 'N/A', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'N/A', 'backpack', 'umbrella', 'N/A', 'N/A', 'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle', 'N/A', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch', 'potted plant', 'bed', 'N/A', 'dining table', 'N/A', 'N/A', 'toilet', 'N/A', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'N/A', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush']
+# 80
+hico_obj_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 27, 28, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 67, 70, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 85, 86, 87, 88, 89, 90]
+hico_obj_names = [coco_obj_names[id] for id in hico_obj_ids]
+# 117
+hico_action_names = ['adjust', 'assemble', 'block', 'blow', 'board', 'break', 'brush_with', 'buy', 'carry', 'catch', 'chase', 'check', 'clean', 'control', 'cook', 'cut', 'cut_with', 'direct', 'drag', 'dribble', 'drink_with', 'drive', 'dry', 'eat', 'eat_at', 'exit', 'feed', 'fill', 'flip', 'flush', 'fly', 'greet', 'grind', 'groom', 'herd', 'hit', 'hold', 'hop_on', 'hose', 'hug', 'hunt', 'inspect', 'install', 'jump', 'kick', 'kiss', 'lasso', 'launch', 'lick', 'lie_on', 'lift', 'light', 'load', 'lose', 'make', 'milk', 'move', 'no_interaction', 'open', 'operate', 'pack', 'paint', 'park', 'pay', 'peel', 'pet', 'pick', 'pick_up', 'point', 'pour', 'pull', 'push', 'race', 'read', 'release', 'repair', 'ride', 'row', 'run', 'sail', 'scratch', 'serve', 'set', 'shear', 'sign', 'sip', 'sit_at', 'sit_on', 'slide', 'smell', 'spin', 'squeeze', 'stab', 'stand_on', 'stand_under', 'stick', 'stir', 'stop_at', 'straddle', 'swing', 'tag', 'talk_on', 'teach', 'text_on', 'throw', 'tie', 'toast', 'train', 'turn', 'type_on', 'walk', 'wash', 'watch', 'wave', 'wear', 'wield', 'zip']
+
 def check_annotation(samples, annotations, mode='train', rel_num=20, idx=0):
     img_tensors, img_masks = samples.decompose()
     h, w = (img_masks[idx].float() < 1).nonzero(as_tuple=False).max(0)[0].cpu() + 1
@@ -475,7 +485,7 @@ def check_annotation(samples, annotations, mode='train', rel_num=20, idx=0):
     vg_obj_names = []
     for ind, x in enumerate(res['labels']):
         # vg_obj_names.append(f"{dataset.ind_to_classes[x]}({ind})")
-        vg_obj_names.append(f"class{x}({ind})")
+        vg_obj_names.append(f"{hico_obj_names[x]}({ind})")
 
     rel_pairs = []
     rel_pairs = res['hois'][:rel_num, :2].cpu()
@@ -484,7 +494,7 @@ def check_annotation(samples, annotations, mode='train', rel_num=20, idx=0):
     # list relations
     rel_strs = ''
     for i, rel in enumerate(rel_pairs): # print relation triplets
-        rel_strs += (f"{vg_obj_names[rel[0]]} ---{rel_labels[i]}----> {vg_obj_names[rel[1]]}\n")
+        rel_strs += (f"{vg_obj_names[rel[0]]} ---{hico_action_names[rel_labels[i]]}----> {vg_obj_names[rel[1]]}\n")
 
     # draw images
     plt.imshow(img_tensor)

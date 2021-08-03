@@ -42,7 +42,7 @@ class HICODetection(torch.utils.data.Dataset):
                     self.ids.append(idx)
         else:
             self.ids = list(range(len(self.annotations)))
-        # self.ids = self.ids[::10]
+        self.ids = self.ids[::10]
 
     ############################################################################
     # Number Method
@@ -155,6 +155,7 @@ class HICODetection(torch.utils.data.Dataset):
                 kept_obj_id = kept_box_indices.index(sub_obj_pair[1])
                 relation_map[kept_subj_id, kept_obj_id] = torch.tensor(verb_labels[sub_obj_pairs.index(sub_obj_pair)])
             target['relation_map'] = relation_map
+            target['hois'] = relation_map.nonzero(as_tuple=False)
         else:
             target['boxes'] = boxes
             target['labels'] = classes
@@ -163,12 +164,12 @@ class HICODetection(torch.utils.data.Dataset):
             if self._transforms is not None:
                 img, _ = self._transforms(img, None)
 
-        hois = []
-        for hoi in img_anno['hoi_annotation']:
-            hois.append((hoi['subject_id'], hoi['object_id'], self._valid_verb_ids.index(hoi['category_id'])))
-        target['hois'] = torch.as_tensor(hois, dtype=torch.int64)
-        target['image_id'] = torch.tensor([idx])
+            hois = []
+            for hoi in img_anno['hoi_annotation']:
+                hois.append((hoi['subject_id'], hoi['object_id'], self._valid_verb_ids.index(hoi['category_id'])))
+            target['hois'] = torch.as_tensor(hois, dtype=torch.int64)
 
+        target['image_id'] = torch.tensor([idx])
         return img, target
 
     def set_rare_hois(self, anno_file):
@@ -236,7 +237,7 @@ def make_hico_transforms(image_set):
     raise ValueError(f'unknown {image_set}')
 
 
-def merge_box_annotations(org_image_annotation, overlap_iou_thres=0.7):
+def merge_box_annotations(org_image_annotation, overlap_iou_thres=0.6):
     merged_image_annotation = org_image_annotation.copy()
 
     # compute match

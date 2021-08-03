@@ -102,6 +102,7 @@ class HICOEvaluator():
         rare_recall = defaultdict(lambda: 0)
         non_rare_recall = defaultdict(lambda: 0)
         for triplet in self.gt_triplets:
+            # if triplet[-1] == 57: continue
             sum_gts = self.sum_gts[triplet]
             if sum_gts == 0:
                 continue

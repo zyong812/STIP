@@ -254,7 +254,7 @@ if __name__ == '__main__':
     parser.add_argument('--reduce_lr_on_plateau_factor', default=0.2, type=float)
 
     # loss
-    parser.add_argument('--proposal_focal_loss_alpha', default=0.9, type=float) # large alpha for high recall
+    parser.add_argument('--proposal_focal_loss_alpha', default=0.75, type=float) # large alpha for high recall
     parser.add_argument('--action_focal_loss_alpha', default=0.5, type=float)
     parser.add_argument('--proposal_focal_loss_gamma', default=2, type=float)
     parser.add_argument('--action_focal_loss_gamma', default=2, type=float)
