@@ -393,15 +393,15 @@ class VRTRCriterion(nn.Module):
         else:
             rel_proposal_targets = (all_rel_pair_targets[..., self.valid_ids].sum(-1) > 0).float()
 
-
-        # loss_proposal = F.binary_cross_entropy_with_logits(outputs['pred_action_exists'], rel_proposal_targets)
-        loss_proposal = focal_loss(outputs['pred_action_exists'], rel_proposal_targets, gamma=self.args.proposal_focal_loss_gamma, alpha=self.args.proposal_focal_loss_alpha) # loss proposals
-        loss_action = focal_loss(outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], gamma=self.args.action_focal_loss_gamma, alpha=self.args.action_focal_loss_alpha, class_weights=action_class_weights)
+        loss_proposal = self.proposal_loss(outputs['pred_action_exists'], rel_proposal_targets)
+        loss_action = self.action_loss(outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], action_class_weights)
 
         loss_dict = {'loss_proposal': loss_proposal, 'loss_act': loss_action}
         if 'hoi_aux_outputs' in outputs:
             for i, aux_outputs in enumerate(outputs['hoi_aux_outputs']):
-                aux_loss = {f'loss_act_{i}': focal_loss(aux_outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], gamma=self.args.action_focal_loss_gamma, alpha=self.args.action_focal_loss_alpha, class_weights=action_class_weights)}
+                aux_loss = {
+                    f'loss_act_{i}': self.action_loss(aux_outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], action_class_weights)
+                }
                 loss_dict.update(aux_loss)
 
         # jointly train objects and relation decoder
@@ -431,6 +431,33 @@ class VRTRCriterion(nn.Module):
                         loss_dict.update(l_dict)
 
         return loss_dict
+
+    def proposal_loss(self, inputs, targets):
+        loss = focal_loss(inputs, targets, gamma=self.args.proposal_focal_loss_gamma, alpha=self.args.proposal_focal_loss_alpha)
+        # loss_bce = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
+        # loss = loss_bce[targets<0.5].mean() # neg loss
+        # if targets.sum() > 0:
+        #     loss += loss_bce[targets>0.5].mean() # pos loss
+        return loss
+
+    def action_loss(self, inputs, targets, action_class_weights):
+        # loss = focal_loss(inputs, targets, gamma=self.args.action_focal_loss_gamma, alpha=self.args.action_focal_loss_alpha, class_weights=action_class_weights)
+        probs = inputs.sigmoid()
+        loss_bce = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none', weight=action_class_weights)
+
+        # gamma
+        p_t = probs * targets + (1 - probs) * (1 - targets)
+        loss_bce = ((1-p_t)**self.args.action_focal_loss_gamma * loss_bce)
+
+        # alpha
+        alpha_t = self.args.action_focal_loss_alpha * targets + (1 - self.args.action_focal_loss_alpha) * (1 - targets)
+        loss_focal = alpha_t * loss_bce
+
+        loss = loss_focal.sum() / max(targets.sum(), 1) # default
+        # loss = (loss_focal * (targets.sum(-1, keepdims=True) + 0.1)).sum() / max(targets.sum(), 1) # sample-wise average
+        # action_num = targets.shape[-1]
+        # loss = (loss_focal.view(-1, action_num).mean(0) * (targets.view(-1, action_num).sum(0) + 0.1)).sum() / max(targets.sum(), 1) # class-wise average
+        return loss
 
 class VRTRPostProcess(nn.Module):
     def __init__(self, args, model):
@@ -617,7 +644,6 @@ class RelationFeatureExtractor(nn.Module):
             overlap, union, box_area[:,None,None].expand(*union.shape), box_area[None,:,None].expand(*union.shape) # overlap, union, subj, obj
         ], dim=-1)
         return spatial_feats
-
 
 def focal_loss(blogits, target_classes, alpha=0.5, gamma=2, class_weights=None):
     probs = blogits.sigmoid() # prob(positive)
