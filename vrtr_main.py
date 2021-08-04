@@ -75,6 +75,7 @@ def main(args):
         args.num_human_act = dataset_train.num_human_act()
     elif args.dataset_file == 'hico-det':
         args.valid_obj_ids = dataset_train.get_valid_obj_ids()
+        args.correct_mat = torch.tensor(dataset_val.correct_mat).to(device)
     print_args(args)
 
     if args.distributed:
@@ -267,6 +268,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_relation_tgt_mask_attend_topk', default=10, type=int)
     parser.add_argument('--use_memory_role_embedding', action='store_true', default=False)
     parser.add_argument('--no_interaction_decoder', action='store_true', default=False)
+    parser.add_argument('--use_prior_verb_label_mask', action='store_true', default=False)
     parser.add_argument('--relation_feature_map_from', default='backbone', help='backbone | detr_encoder')
 
     args = parser.parse_args()

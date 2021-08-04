@@ -111,7 +111,7 @@ class VRTR(nn.Module):
             probs = outputs_class[-1, imgid].softmax(-1)
             inst_scores, inst_labels = probs.max(-1)
             human_instance_ids = (inst_labels==1).nonzero(as_tuple=False)
-            bg_instance_ids = (probs[:, -1] > 0.9)
+            bg_instance_ids = (probs[:, -1] > 0.8)
 
             rel_mat = torch.zeros((num_nodes, num_nodes))
             rel_mat[human_instance_ids, ~bg_instance_ids] = 1 # subj is human, obj is not background
@@ -382,25 +382,26 @@ class VRTRCriterion(nn.Module):
             all_rel_pair_targets.append(rel_pair_targets)
         all_rel_pair_targets = torch.stack(all_rel_pair_targets, dim=0)
 
-        action_class_weights = None
+        prior_verb_label_mask = None
         if self.args.dataset_file == 'hico-det':
             no_interaction_id = self.args.action_names.index('no_interaction')
             rel_proposal_targets = (all_rel_pair_targets[..., self.valid_ids].sum(-1) - all_rel_pair_targets[..., no_interaction_id] > 0).float()
-            # no_interaction_onehot = torch.zeros((1, len(self.valid_ids))).to(all_rel_pair_targets.device); no_interaction_onehot[0, no_interaction_id] = 1
-            # all_rel_pair_targets[rel_proposal_targets<1] = torch.max(all_rel_pair_targets[rel_proposal_targets<1], no_interaction_onehot) # ambigious class
-            # action_class_weights = torch.ones(len(self.valid_ids)).to(all_rel_pair_targets.device)
-            # action_class_weights[no_interaction_id] = self.args.hoi_eos_coef
+            if self.args.use_prior_verb_label_mask:
+                pred_obj_labels = outputs['pred_logits'][:,:,self.args.valid_obj_ids].argmax(-1)
+                tail_obj_ids = outputs['pred_rel_pairs'][:,:,1]
+                tail_obj_labels = torch.stack([l[id] for l, id in zip(pred_obj_labels, tail_obj_ids)])
+                prior_verb_label_mask = self.args.correct_mat.transpose(0,1)[tail_obj_labels]
         else:
             rel_proposal_targets = (all_rel_pair_targets[..., self.valid_ids].sum(-1) > 0).float()
 
         loss_proposal = self.proposal_loss(outputs['pred_action_exists'], rel_proposal_targets)
-        loss_action = self.action_loss(outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], action_class_weights)
+        loss_action = self.action_loss(outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], prior_verb_label_mask)
 
         loss_dict = {'loss_proposal': loss_proposal, 'loss_act': loss_action}
         if 'hoi_aux_outputs' in outputs:
             for i, aux_outputs in enumerate(outputs['hoi_aux_outputs']):
                 aux_loss = {
-                    f'loss_act_{i}': self.action_loss(aux_outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], action_class_weights)
+                    f'loss_act_{i}': self.action_loss(aux_outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], prior_verb_label_mask)
                 }
                 loss_dict.update(aux_loss)
 
@@ -433,30 +434,54 @@ class VRTRCriterion(nn.Module):
         return loss_dict
 
     def proposal_loss(self, inputs, targets):
-        loss = focal_loss(inputs, targets, gamma=self.args.proposal_focal_loss_gamma, alpha=self.args.proposal_focal_loss_alpha)
+        # loss = focal_loss(inputs, targets, gamma=self.args.proposal_focal_loss_gamma, alpha=self.args.proposal_focal_loss_alpha)
+
+        ## conventional BCE
         # loss_bce = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
         # loss = loss_bce[targets<0.5].mean() # neg loss
         # if targets.sum() > 0:
         #     loss += loss_bce[targets>0.5].mean() # pos loss
+
+
+        # focal loss to balance positive/negative
+        probs = inputs.sigmoid()
+        pos_inds = targets.eq(1).float()
+        neg_inds = targets.lt(1).float()
+        pos_loss = torch.log(probs) * torch.pow(1 - probs, 2) * pos_inds
+        neg_loss = torch.log(1 - probs) * torch.pow(probs, 2) * neg_inds
+        pos_loss = pos_loss.sum()
+        neg_loss = neg_loss.sum()
+
+        # normalize
+        num_pos = pos_inds.float().sum()
+        if num_pos == 0:
+            loss = -neg_loss
+        else:
+            loss = -(pos_loss + neg_loss) / num_pos
         return loss
 
-    def action_loss(self, inputs, targets, action_class_weights):
-        # loss = focal_loss(inputs, targets, gamma=self.args.action_focal_loss_gamma, alpha=self.args.action_focal_loss_alpha, class_weights=action_class_weights)
+    def action_loss(self, inputs, targets, prior_verb_label_mask=None):
+        # loss = focal_loss(inputs, targets, gamma=self.args.action_focal_loss_gamma, alpha=self.args.action_focal_loss_alpha, prior_verb_label_mask=prior_verb_label_mask)
         probs = inputs.sigmoid()
-        loss_bce = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none', weight=action_class_weights)
 
-        # gamma
-        p_t = probs * targets + (1 - probs) * (1 - targets)
-        loss_bce = ((1-p_t)**self.args.action_focal_loss_gamma * loss_bce)
+        # focal loss to balance positive/negative
+        pos_inds = targets.eq(1).float()
+        neg_inds = targets.lt(1).float()
+        pos_loss = torch.log(probs) * torch.pow(1 - probs, 2) * pos_inds
+        neg_loss = torch.log(1 - probs) * torch.pow(probs, 2) * neg_inds
+        if prior_verb_label_mask is not None: # mask invalid predictions
+            pos_loss = pos_loss * prior_verb_label_mask
+            neg_loss = neg_loss * prior_verb_label_mask
+        pos_loss = pos_loss.sum()
+        neg_loss = neg_loss.sum()
 
-        # alpha
-        alpha_t = self.args.action_focal_loss_alpha * targets + (1 - self.args.action_focal_loss_alpha) * (1 - targets)
-        loss_focal = alpha_t * loss_bce
+        # normalize
+        num_pos = pos_inds.float().sum()
+        if num_pos == 0:
+            loss = -neg_loss
+        else:
+            loss = -(pos_loss + neg_loss) / num_pos
 
-        loss = loss_focal.sum() / max(targets.sum(), 1) # default
-        # loss = (loss_focal * (targets.sum(-1, keepdims=True) + 0.1)).sum() / max(targets.sum(), 1) # sample-wise average
-        # action_num = targets.shape[-1]
-        # loss = (loss_focal.view(-1, action_num).mean(0) * (targets.view(-1, action_num).sum(0) + 0.1)).sum() / max(targets.sum(), 1) # class-wise average
         return loss
 
 class VRTRPostProcess(nn.Module):
@@ -645,7 +670,8 @@ class RelationFeatureExtractor(nn.Module):
         ], dim=-1)
         return spatial_feats
 
-def focal_loss(blogits, target_classes, alpha=0.5, gamma=2, class_weights=None):
+# conventional focal loss to balance hard/easy
+def focal_loss(blogits, target_classes, alpha=0.5, gamma=2, prior_verb_label_mask=None, class_weights=None):
     probs = blogits.sigmoid() # prob(positive)
     loss_bce = F.binary_cross_entropy_with_logits(blogits, target_classes, reduction='none', weight=class_weights)
     p_t = probs * target_classes + (1 - probs) * (1 - target_classes)
@@ -653,6 +679,9 @@ def focal_loss(blogits, target_classes, alpha=0.5, gamma=2, class_weights=None):
 
     alpha_t = alpha * target_classes + (1 - alpha) * (1 - target_classes)
     loss_focal = alpha_t * loss_bce
+
+    if prior_verb_label_mask is not None:
+        loss_focal = loss_focal * prior_verb_label_mask
 
     loss = loss_focal.sum() / max(target_classes.sum(), 1)
     return loss
