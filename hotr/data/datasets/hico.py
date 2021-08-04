@@ -42,7 +42,7 @@ class HICODetection(torch.utils.data.Dataset):
                     self.ids.append(idx)
         else:
             self.ids = list(range(len(self.annotations)))
-        self.ids = self.ids[::10]
+        # self.ids = self.ids[::10]
 
     ############################################################################
     # Number Method
@@ -85,6 +85,7 @@ class HICODetection(torch.utils.data.Dataset):
 
         if self.img_set == 'train':
             img_anno = merge_box_annotations(img_anno)
+        # img_anno = merge_box_annotations(img_anno) # for finetune detr
 
         boxes = [obj['bbox'] for obj in img_anno['annotations']]
         # guard against no boxes via resizing
@@ -237,7 +238,7 @@ def make_hico_transforms(image_set):
     raise ValueError(f'unknown {image_set}')
 
 
-def merge_box_annotations(org_image_annotation, overlap_iou_thres=0.6):
+def merge_box_annotations(org_image_annotation, overlap_iou_thres=0.7):
     merged_image_annotation = org_image_annotation.copy()
 
     # compute match
@@ -259,8 +260,14 @@ def merge_box_annotations(org_image_annotation, overlap_iou_thres=0.6):
     group_info, orgbox2group = [], {}
     for gid, org_box_ids in enumerate(box_groups):
         for orgid in org_box_ids: orgbox2group.update({orgid: gid})
-        selected_box_id = np.random.choice(org_box_ids)
-        group_info.append(bbox_list[selected_box_id])
+        # selected_box_id = np.random.choice(org_box_ids)
+        # box_info = bbox_list[selected_box_id]
+        box_info = {
+            'bbox': torch.tensor([bbox_list[id]['bbox'] for id in org_box_ids]).float().mean(dim=0).int().tolist(),
+            'category_id': bbox_list[org_box_ids[0]]['category_id']
+        }
+
+        group_info.append(box_info)
 
     new_hois = []
     for hoi in org_image_annotation['hoi_annotation']:
