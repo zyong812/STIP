@@ -14,6 +14,7 @@ import hotr.util.misc as utils
 import hotr.util.logger as loggers
 from hotr.data.evaluators.vcoco_eval import VCocoEvaluator
 from hotr.util.box_ops import rescale_bboxes, rescale_pairs
+from hotr.models.vrtr_utils import check_annotation, plot_cross_attention
 
 import wandb
 
@@ -33,6 +34,9 @@ def vcoco_evaluate(model, criterion, postprocessors, data_loader, device, output
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
+        # dec_selfattn_weights, dec_crossattn_weights = [], []
+        # hook = model.interaction_decoder.layers[-1].multihead_attn.register_forward_hook(lambda self, input, output: dec_crossattn_weights.append(output[1]))
+
         outputs = model(samples)
         loss_dict = criterion(outputs, targets)
         loss_dict_reduced = utils.reduce_dict(loss_dict) # ddp gathering
@@ -45,6 +49,9 @@ def vcoco_evaluate(model, criterion, postprocessors, data_loader, device, output
         targets = process_target(targets, orig_target_sizes)
         hoi_recognition_time.append(results[0]['hoi_recognition_time'] * 1000)
 
+        # check_annotation(samples, targets, mode='eval', rel_num=20, dataset='vcoco')
+        # plot_cross_attention(samples, outputs, targets, dec_crossattn_weights, dataset='vcoco'); hook.remove()
+
         res.update(
             {target['image_id'].item():\
                 {'target': target, 'prediction': output} for target, output in zip(targets, results)
@@ -52,6 +59,7 @@ def vcoco_evaluate(model, criterion, postprocessors, data_loader, device, output
         )
         metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled)
         # if len(res) > 10: break
+
     print(f"[stats] HOI Recognition Time (avg) : {sum(hoi_recognition_time)/len(hoi_recognition_time):.4f} ms")
     metric_logger.synchronize_between_processes()
     print("Averaged validation stats:", metric_logger)

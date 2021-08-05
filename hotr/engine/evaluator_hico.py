@@ -37,12 +37,15 @@ def hico_evaluate(model, postprocessors, data_loader, device, thr):
         results = postprocessors['hoi'](outputs, orig_target_sizes, threshold=thr, dataset='hico-det')
         hoi_recognition_time.append(results[0]['hoi_recognition_time'] * 1000)
 
+        # check_annotation(samples, targets, mode='eval', rel_num=20)
+        # plot_cross_attention(samples, outputs, targets, dec_crossattn_weights); hook.remove()
+        # if targets[0]['image_id'].item() in [48, 88]:
+        #     print('xxx')
+
         preds.extend(list(itertools.chain.from_iterable(utils.all_gather(results))))
         # For avoiding a runtime error, the copy is used
         gts.extend(list(itertools.chain.from_iterable(utils.all_gather(copy.deepcopy(targets)))))
 
-        # check_annotation(samples, targets, mode='eval', rel_num=20)
-        # plot_cross_attention(samples, outputs, targets, dec_crossattn_weights); hook.remove()
 
     print(f"[stats] HOI Recognition Time (avg) : {sum(hoi_recognition_time)/len(hoi_recognition_time):.4f} ms")
 

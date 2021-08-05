@@ -469,7 +469,18 @@ hico_obj_names = [coco_obj_names[id] for id in hico_obj_ids]
 # 117
 hico_action_names = ['adjust', 'assemble', 'block', 'blow', 'board', 'break', 'brush_with', 'buy', 'carry', 'catch', 'chase', 'check', 'clean', 'control', 'cook', 'cut', 'cut_with', 'direct', 'drag', 'dribble', 'drink_with', 'drive', 'dry', 'eat', 'eat_at', 'exit', 'feed', 'fill', 'flip', 'flush', 'fly', 'greet', 'grind', 'groom', 'herd', 'hit', 'hold', 'hop_on', 'hose', 'hug', 'hunt', 'inspect', 'install', 'jump', 'kick', 'kiss', 'lasso', 'launch', 'lick', 'lie_on', 'lift', 'light', 'load', 'lose', 'make', 'milk', 'move', 'no_interaction', 'open', 'operate', 'pack', 'paint', 'park', 'pay', 'peel', 'pet', 'pick', 'pick_up', 'point', 'pour', 'pull', 'push', 'race', 'read', 'release', 'repair', 'ride', 'row', 'run', 'sail', 'scratch', 'serve', 'set', 'shear', 'sign', 'sip', 'sit_at', 'sit_on', 'slide', 'smell', 'spin', 'squeeze', 'stab', 'stand_on', 'stand_under', 'stick', 'stir', 'stop_at', 'straddle', 'swing', 'tag', 'talk_on', 'teach', 'text_on', 'throw', 'tie', 'toast', 'train', 'turn', 'type_on', 'walk', 'wash', 'watch', 'wave', 'wear', 'wield', 'zip']
 
-def check_annotation(samples, annotations, mode='train', rel_num=20, idx=0):
+# 29 (25 valid)
+vcoco_action_names = ['hold_obj', 'stand_agent', 'sit_instr', 'ride_instr', 'walk_agent', 'look_obj', 'hit_instr', 'hit_obj', 'eat_obj', 'eat_instr', 'jump_instr', 'lay_instr', 'talk_on_phone_instr', 'carry_obj', 'throw_obj', 'catch_obj', 'cut_instr', 'cut_obj', 'run_agent', 'work_on_computer_instr', 'ski_instr', 'surf_instr', 'skateboard_instr', 'smile_agent', 'drink_instr', 'kick_obj', 'point_instr', 'read_obj', 'snowboard_instr']
+vcoco_valid_action_ids = [ 0,  2,  3,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 22, 24, 25, 26, 27, 28]
+
+def check_annotation(samples, annotations, mode='train', rel_num=20, idx=0, dataset='hico'):
+    if dataset == 'vcoco':
+        obj_label_names = coco_obj_names
+        action_label_names = vcoco_action_names
+    else:
+        obj_label_names = hico_obj_names
+        action_label_names = hico_action_names
+
     img_tensors, img_masks = samples.decompose()
     h, w = (img_masks[idx].float() < 1).nonzero(as_tuple=False).max(0)[0].cpu() + 1
 
@@ -486,17 +497,18 @@ def check_annotation(samples, annotations, mode='train', rel_num=20, idx=0):
         boxes = boxes * torch.tensor([w/org_w, h/org_h, w/org_w, h/org_h]).unsqueeze(0)
     vg_obj_names = []
     for ind, x in enumerate(res['labels']):
-        # vg_obj_names.append(f"{dataset.ind_to_classes[x]}({ind})")
-        vg_obj_names.append(f"{hico_obj_names[x]}({ind})")
+        vg_obj_names.append(f"{obj_label_names[x]}({ind})")
 
-    rel_pairs = []
+    if 'hois' not in res:
+        res['hois'] = res['relation_map'].nonzero(as_tuple=False)
     rel_pairs = res['hois'][:rel_num, :2].cpu()
     rel_labels = res['hois'][:rel_num, 2].cpu()
 
     # list relations
     rel_strs = ''
     for i, rel in enumerate(rel_pairs): # print relation triplets
-        rel_strs += (f"{vg_obj_names[rel[0]]} ---{hico_action_names[rel_labels[i]]}----> {vg_obj_names[rel[1]]}\n")
+        if dataset == 'vcoco' and rel_labels[i] not in vcoco_valid_action_ids: continue
+        rel_strs += (f"{vg_obj_names[rel[0]]} ---{action_label_names[rel_labels[i]]}----> {vg_obj_names[rel[1]]}\n")
 
     # draw images
     plt.imshow(img_tensor)
@@ -513,7 +525,12 @@ def check_annotation(samples, annotations, mode='train', rel_num=20, idx=0):
 
 COLORS = [[0.000, 0.447, 0.741], [0.850, 0.325, 0.098], [0.929, 0.694, 0.125],
           [0.494, 0.184, 0.556], [0.466, 0.674, 0.188], [0.301, 0.745, 0.933]]
-def plot_cross_attention(samples, results, targets, attn_maps, idx=0):
+def plot_cross_attention(samples, results, targets, attn_maps, idx=0, dataset='hico'):
+    if dataset == 'vcoco':
+        action_label_names = vcoco_action_names
+    else:
+        action_label_names = hico_action_names
+
     pil_imgs, masks = samples.decompose()
     pil_img, mask, attn_map = pil_imgs[idx], masks[idx], attn_maps[idx]
 
@@ -542,8 +559,11 @@ def plot_cross_attention(samples, results, targets, attn_maps, idx=0):
         ######## specific relation ##########
         subj_id, obj_id = results['pred_rel_pairs'][idx, pair_id]
         action_probs = results['pred_actions'][idx, pair_id].sigmoid().cpu()
+        if dataset == 'vcoco':
+            for k in range(len(action_probs)):
+                if k not in vcoco_valid_action_ids: action_probs[k] = -1
         action_scores, action_labels = action_probs.sort(descending=True)
-        action_label_names = '\n'.join([f"{hico_action_names[action_labels[k]]} ({action_scores[k]: 0.2f})" for k in range(len(action_scores)) if k < 3 or action_scores[k] > 0.5])
+        pair_action_label_names = '\n'.join([f"{action_label_names[action_labels[k]]} ({action_scores[k]: 0.2f})" for k in range(len(action_labels)) if k<3 or action_scores[k] > 0.5])
 
         ######## img with cross attention ##########
         featmap_scale = 32
@@ -576,8 +596,8 @@ def plot_cross_attention(samples, results, targets, attn_maps, idx=0):
         # axes[1].arrow(ax1, ay1, ax2-ax1, ay2-ay1, color='blue')
         axes[pair_id+1].arrow(ax1, ay1, ax2-ax1, ay2-ay1, head_width=20, head_length=20, color='blue', linewidth=5)
 
-        axes[pair_id+1].set_title(action_label_names, fontsize=20)
+        axes[pair_id+1].set_title(pair_action_label_names, fontsize=20)
         axes[pair_id+1].set_axis_off()
 
     plt.show()
-    print(action_label_names)
+    print(pair_action_label_names)
