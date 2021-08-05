@@ -42,7 +42,7 @@ class HICODetection(torch.utils.data.Dataset):
                     self.ids.append(idx)
         else:
             self.ids = list(range(len(self.annotations)))
-        # self.ids = self.ids[::10]
+        # self.ids = self.ids[::50]
 
     ############################################################################
     # Number Method

@@ -601,3 +601,52 @@ def plot_cross_attention(samples, results, targets, attn_maps, idx=0, dataset='h
 
     plt.show()
     print(pair_action_label_names)
+
+def plot_hoi_results(samples, results, targets, args, idx=0):
+    pil_imgs, masks = samples.decompose()
+    pil_img, mask= pil_imgs[idx], masks[idx]
+
+    pil_img = ((pil_img - pil_img.min()) / (pil_img.max() - pil_img.min())).permute(1,2,0).cpu().numpy()
+    h, w = (~mask).float().nonzero(as_tuple=False).max(0)[0] + 1
+    pil_img = pil_img[:h, :w]
+
+    boxes = box_ops.box_cxcywh_to_xyxy(results['pred_boxes'][idx].cpu()) * torch.tensor([w,h,w,h])
+    box_scores, box_labels = results['pred_logits'][idx].softmax(-1)[:, :-1].cpu().max(-1)
+
+    ######## plt boxes ##########
+    plt.title(f"image_id={targets[idx]['image_id'].item()}")
+    plt.imshow(pil_img)
+    colors = COLORS * 100
+    for id, (sc, l, (xmin, ymin, xmax, ymax), c) in enumerate(zip(box_scores, box_labels, boxes, colors)):
+        if sc < 0.9: continue
+        plt.gca().add_patch(plt.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, fill=False, color=c))
+        text = f'{coco_obj_names[l]}-{str(id)}({sc:0.2f})'
+        plt.text(xmin, ymin, text, fontsize=10, bbox=dict(facecolor='white', alpha=0.5))
+    # plt.axis('off')
+
+    ####### top predicted hois ##########
+    K = 50
+    tail_scores = box_scores[results['pred_rel_pairs'][idx][:, -1]]
+    verb_scores = results['pred_actions'][idx].sigmoid().cpu()
+    hoi_scores = verb_scores * tail_scores.unsqueeze(1)
+
+    # apply mask
+    tail_labels = box_labels[results['pred_rel_pairs'][idx][:, -1]]
+    tail_labels = [hico_obj_ids.index(x) for x in tail_labels] # to hico obj labels
+    mask = args.correct_mat.transpose(1,0).cpu()[tail_labels]
+    hoi_scores *= mask
+
+    qnum, action_num = hoi_scores.shape
+    _, sort_ids = hoi_scores.view(-1).sort(descending=True)
+    topk_qids, topk_actions = sort_ids[:K] // action_num, sort_ids[:K] % action_num
+
+    rel_strs = ''
+    for qid, qaction in zip(topk_qids, topk_actions):
+        head_id, tail_id = results['pred_rel_pairs'][idx][qid]
+        rel_strs += f"q={qid}:\t{coco_obj_names[box_labels[head_id]]}-{head_id} ({box_scores[head_id]: .2f})\t === {hico_action_names[qaction]} ({verb_scores[qid, qaction]: .2f}) ===>\t\t{coco_obj_names[box_labels[tail_id]]}-{tail_id}({box_scores[tail_id]: .2f})\n"
+    print(rel_strs)
+
+    # plt.gca().yaxis.set_label_position("right")
+    # plt.ylabel(rel_strs, rotation=0, labelpad=140, fontsize=8, loc='top')
+    plt.show()
+    print('plot_hoi_results')

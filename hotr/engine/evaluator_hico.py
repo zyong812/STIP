@@ -11,7 +11,7 @@ import torch
 import hotr.util.misc as utils
 import hotr.util.logger as loggers
 from hotr.data.evaluators.hico_eval import HICOEvaluator
-from hotr.models.vrtr_utils import check_annotation, plot_cross_attention
+from hotr.models.vrtr_utils import check_annotation, plot_cross_attention, plot_hoi_results
 
 @torch.no_grad()
 def hico_evaluate(model, postprocessors, data_loader, device, thr):
@@ -41,6 +41,7 @@ def hico_evaluate(model, postprocessors, data_loader, device, thr):
         # plot_cross_attention(samples, outputs, targets, dec_crossattn_weights); hook.remove()
         # if targets[0]['image_id'].item() in [48, 88]:
         #     print('xxx')
+        # plot_hoi_results(samples, outputs, targets, args=model.args)
 
         preds.extend(list(itertools.chain.from_iterable(utils.all_gather(results))))
         # For avoiding a runtime error, the copy is used

@@ -582,8 +582,6 @@ class VRTRPostProcess(nn.Module):
                 }
                 results.append(res_dict)
 
-                ## visualization
-
         return results
 
 class RelationFeatureExtractor(nn.Module):
