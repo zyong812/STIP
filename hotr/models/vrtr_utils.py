@@ -541,8 +541,9 @@ def plot_cross_attention(samples, results, targets, attn_maps, idx=0):
     for pair_id in range(pair_id_counts):
         ######## specific relation ##########
         subj_id, obj_id = results['pred_rel_pairs'][idx, pair_id]
-        action_scores = results['pred_actions'][idx, pair_id].sigmoid()
-        action_labels = (action_scores > 0.1).nonzero(as_tuple=False).squeeze(1).tolist()
+        action_probs = results['pred_actions'][idx, pair_id].sigmoid().cpu()
+        action_scores, action_labels = action_probs.sort(descending=True)
+        action_label_names = '\n'.join([f"{hico_action_names[action_labels[k]]} ({action_scores[k]: 0.2f})" for k in range(len(action_scores)) if k < 3 or action_scores[k] > 0.5])
 
         ######## img with cross attention ##########
         featmap_scale = 32
@@ -575,7 +576,6 @@ def plot_cross_attention(samples, results, targets, attn_maps, idx=0):
         # axes[1].arrow(ax1, ay1, ax2-ax1, ay2-ay1, color='blue')
         axes[pair_id+1].arrow(ax1, ay1, ax2-ax1, ay2-ay1, head_width=20, head_length=20, color='blue', linewidth=5)
 
-        action_label_names = '\n'.join([f"{hico_action_names[l]} ({action_scores[l]: 0.2f})" for l in action_labels])
         axes[pair_id+1].set_title(action_label_names, fontsize=20)
         axes[pair_id+1].set_axis_off()
 
