@@ -39,7 +39,7 @@ class VRTR(nn.Module):
 
         # relation proposal
         rel_rep_dim = 1024
-        self.union_box_feature_extractor = RelationFeatureExtractor(in_channels=relation_feature_map_dim, resolution=7, out_dim=rel_rep_dim)
+        self.coarse_relation_feature_extractor = RelationFeatureExtractor(args, in_channels=relation_feature_map_dim, resolution=7, out_dim=rel_rep_dim)
         self.relation_proposal_mlp = nn.Sequential(
             make_fc(rel_rep_dim, rel_rep_dim // 2), nn.ReLU(),
             make_fc(rel_rep_dim // 2, 1)
@@ -128,7 +128,7 @@ class VRTR(nn.Module):
                     # hard negative sampling
                     all_pairs = torch.cat([gt_rel_pairs[imgid], rel_pairs], dim=0)
                     gt_pair_count = len(gt_rel_pairs[imgid])
-                    all_rel_reps = self.union_box_feature_extractor(all_pairs, relation_feature_map, outputs_coord[-1, imgid].detach(), inst_repr[imgid], idx=imgid)
+                    all_rel_reps = self.coarse_relation_feature_extractor(all_pairs, relation_feature_map, outputs_coord[-1, imgid].detach(), inst_repr[imgid], obj_label_logits=outputs_class[-1, imgid], idx=imgid)
                     p_relation_exist_logits = self.relation_proposal_mlp(all_rel_reps).squeeze()
 
                     gt_inds = torch.arange(gt_pair_count).to(p_relation_exist_logits.device)
@@ -142,11 +142,11 @@ class VRTR(nn.Module):
                     # random sampling
                     sampled_neg_inds = torch.randperm(len(rel_pairs))
                     sampled_rel_pairs = torch.cat([gt_rel_pairs[imgid], rel_pairs[sampled_neg_inds]], dim=0)[:self.args.num_hoi_queries]
-                    sampled_rel_reps = self.union_box_feature_extractor(sampled_rel_pairs, relation_feature_map, outputs_coord[-1, imgid].detach(), inst_repr[imgid], idx=imgid)
+                    sampled_rel_reps = self.coarse_relation_feature_extractor(sampled_rel_pairs, relation_feature_map, outputs_coord[-1, imgid].detach(), inst_repr[imgid], obj_label_logits=outputs_class[-1, imgid], idx=imgid)
                     sampled_rel_pred_exists = self.relation_proposal_mlp(sampled_rel_reps).squeeze()
             else:
                 rel_pairs = rel_mat.nonzero(as_tuple=False)
-                rel_reps = self.union_box_feature_extractor(rel_pairs, relation_feature_map, outputs_coord[-1, imgid].detach(), inst_repr[imgid], idx=imgid)
+                rel_reps = self.coarse_relation_feature_extractor(rel_pairs, relation_feature_map, outputs_coord[-1, imgid].detach(), inst_repr[imgid], obj_label_logits=outputs_class[-1, imgid], idx=imgid)
                 p_relation_exist_logits = self.relation_proposal_mlp(rel_reps).squeeze()
 
                 _, sort_rel_inds = p_relation_exist_logits.squeeze().sort(descending=True)
@@ -586,8 +586,9 @@ class VRTRPostProcess(nn.Module):
         return results
 
 class RelationFeatureExtractor(nn.Module):
-    def __init__(self, in_channels, resolution=7, out_dim=1024):
+    def __init__(self, args, in_channels, resolution=7, out_dim=1024):
         super(RelationFeatureExtractor, self).__init__()
+        self.args = args
         self.resolution = resolution
 
         # reduce channel size before pooling
@@ -605,13 +606,21 @@ class RelationFeatureExtractor(nn.Module):
         spatial_in_dim, spatial_out_dim = 8, 256
         self.spatial_proj = make_fc(spatial_in_dim, spatial_out_dim)
 
+        # tail semantic feature
+        if args.use_tail_semantic_feature:
+            semantic_dim = 300
+            self.label_embedding = nn.Embedding(self.args.num_classes+1, semantic_dim)
+            fusion_dim = out_dim+instr_hidden_dim*2+spatial_out_dim+semantic_dim
+        else:
+            fusion_dim = out_dim+instr_hidden_dim*2+spatial_out_dim
+
         # fusion
         self.fusion_fc = nn.Sequential(
-            make_fc(out_dim+instr_hidden_dim*2+spatial_out_dim, out_dim), nn.ReLU(),
+            make_fc(fusion_dim, out_dim), nn.ReLU(),
             make_fc(out_dim, out_dim), nn.ReLU()
         )
 
-    def forward(self, rel_pairs, features, boxes, inst_reprs, idx):
+    def forward(self, rel_pairs, features, boxes, inst_reprs, idx, obj_label_logits=None):
         """pool feature for boxes on one image
             features: dxhxw
             boxes: Nx4 (cx_cy_wh, nomalized to 0-1)
@@ -647,7 +656,11 @@ class RelationFeatureExtractor(nn.Module):
         box_layout_feats = self.extract_spatial_layout_feats(xyxy_boxes)
         rel_spatial_feats = self.spatial_proj(box_layout_feats[rel_pairs[:,0], rel_pairs[:,1]])
 
-        relation_feats = torch.cat([union_visual_feats, head_feats, tail_feats, rel_spatial_feats], dim=-1)
+        if self.args.use_tail_semantic_feature:
+            semantic_feats = (obj_label_logits.softmax(-1) @ self.label_embedding.weight)[rel_pairs[:,1]]
+            relation_feats = torch.cat([union_visual_feats, head_feats, tail_feats, rel_spatial_feats, semantic_feats], dim=-1)
+        else:
+            relation_feats = torch.cat([union_visual_feats, head_feats, tail_feats, rel_spatial_feats], dim=-1)
         x = self.fusion_fc(relation_feats)
         return x
 

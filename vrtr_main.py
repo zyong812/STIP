@@ -263,6 +263,7 @@ if __name__ == '__main__':
     parser.add_argument('--action_loss_coef', default=1, type=float)
 
     # model
+    parser.add_argument('--use_tail_semantic_feature', action='store_true', default=False)
     parser.add_argument('--use_memory_union_mask', action='store_true', default=False)
     parser.add_argument('--use_relation_tgt_mask', action='store_true', default=False)
     parser.add_argument('--use_relation_tgt_mask_attend_topk', default=10, type=int)
