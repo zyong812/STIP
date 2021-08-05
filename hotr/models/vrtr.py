@@ -39,7 +39,8 @@ class VRTR(nn.Module):
 
         # relation proposal
         rel_rep_dim = 1024
-        self.coarse_relation_feature_extractor = RelationFeatureExtractor(args, in_channels=relation_feature_map_dim, resolution=7, out_dim=rel_rep_dim)
+        # self.coarse_relation_feature_extractor = RelationFeatureExtractor(args, in_channels=relation_feature_map_dim, resolution=7, out_dim=rel_rep_dim)
+        self.union_box_feature_extractor = RelationFeatureExtractor(args, in_channels=relation_feature_map_dim, resolution=7, out_dim=rel_rep_dim)
         self.relation_proposal_mlp = nn.Sequential(
             make_fc(rel_rep_dim, rel_rep_dim // 2), nn.ReLU(),
             make_fc(rel_rep_dim // 2, 1)
@@ -128,7 +129,7 @@ class VRTR(nn.Module):
                     # hard negative sampling
                     all_pairs = torch.cat([gt_rel_pairs[imgid], rel_pairs], dim=0)
                     gt_pair_count = len(gt_rel_pairs[imgid])
-                    all_rel_reps = self.coarse_relation_feature_extractor(all_pairs, relation_feature_map, outputs_coord[-1, imgid].detach(), inst_repr[imgid], obj_label_logits=outputs_class[-1, imgid], idx=imgid)
+                    all_rel_reps = self.union_box_feature_extractor(all_pairs, relation_feature_map, outputs_coord[-1, imgid].detach(), inst_repr[imgid], obj_label_logits=outputs_class[-1, imgid], idx=imgid)
                     p_relation_exist_logits = self.relation_proposal_mlp(all_rel_reps).squeeze()
 
                     gt_inds = torch.arange(gt_pair_count).to(p_relation_exist_logits.device)
@@ -142,11 +143,11 @@ class VRTR(nn.Module):
                     # random sampling
                     sampled_neg_inds = torch.randperm(len(rel_pairs))
                     sampled_rel_pairs = torch.cat([gt_rel_pairs[imgid], rel_pairs[sampled_neg_inds]], dim=0)[:self.args.num_hoi_queries]
-                    sampled_rel_reps = self.coarse_relation_feature_extractor(sampled_rel_pairs, relation_feature_map, outputs_coord[-1, imgid].detach(), inst_repr[imgid], obj_label_logits=outputs_class[-1, imgid], idx=imgid)
+                    sampled_rel_reps = self.union_box_feature_extractor(sampled_rel_pairs, relation_feature_map, outputs_coord[-1, imgid].detach(), inst_repr[imgid], obj_label_logits=outputs_class[-1, imgid], idx=imgid)
                     sampled_rel_pred_exists = self.relation_proposal_mlp(sampled_rel_reps).squeeze()
             else:
                 rel_pairs = rel_mat.nonzero(as_tuple=False)
-                rel_reps = self.coarse_relation_feature_extractor(rel_pairs, relation_feature_map, outputs_coord[-1, imgid].detach(), inst_repr[imgid], obj_label_logits=outputs_class[-1, imgid], idx=imgid)
+                rel_reps = self.union_box_feature_extractor(rel_pairs, relation_feature_map, outputs_coord[-1, imgid].detach(), inst_repr[imgid], obj_label_logits=outputs_class[-1, imgid], idx=imgid)
                 p_relation_exist_logits = self.relation_proposal_mlp(rel_reps).squeeze()
 
                 _, sort_rel_inds = p_relation_exist_logits.squeeze().sort(descending=True)
