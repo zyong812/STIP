@@ -79,13 +79,13 @@ class HICODetection(torch.utils.data.Dataset):
         img = Image.open(self.img_folder / img_anno['file_name']).convert('RGB')
         w, h = img.size
 
-        # cut out the GTs that exceed the number of object queries
-        if self.img_set == 'train' and len(img_anno['annotations']) > self.num_queries:
-            img_anno['annotations'] = img_anno['annotations'][:self.num_queries]
-
         if self.img_set == 'train':
             img_anno = merge_box_annotations(img_anno)
         # img_anno = merge_box_annotations(img_anno) # for finetune detr
+
+        # cut out the GTs that exceed the number of object queries
+        if self.img_set == 'train' and len(img_anno['annotations']) > self.num_queries:
+            img_anno['annotations'] = img_anno['annotations'][:self.num_queries]
 
         boxes = [obj['bbox'] for obj in img_anno['annotations']]
         # guard against no boxes via resizing
