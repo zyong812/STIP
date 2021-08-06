@@ -70,6 +70,7 @@ class HICOEvaluator():
                     self.gt_triplets.append(triplet)
 
                 self.sum_gts[triplet] += 1
+        print('prepare for hico eval')
 
     def evaluate(self):
         for img_id, (img_preds, img_gts) in enumerate(zip(self.preds, self.gts)):

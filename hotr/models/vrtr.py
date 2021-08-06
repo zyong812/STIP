@@ -386,8 +386,9 @@ class VRTRCriterion(nn.Module):
 
         prior_verb_label_mask = None
         if self.args.dataset_file == 'hico-det':
-            no_interaction_id = self.args.action_names.index('no_interaction')
-            rel_proposal_targets = (all_rel_pair_targets[..., self.valid_ids].sum(-1) - all_rel_pair_targets[..., no_interaction_id] > 0).float()
+            # no_interaction_id = self.args.action_names.index('no_interaction')
+            # rel_proposal_targets = (all_rel_pair_targets[..., self.valid_ids].sum(-1) - all_rel_pair_targets[..., no_interaction_id] > 0).float()
+            rel_proposal_targets = all_rel_pair_targets[..., self.valid_ids].sum(-1).float()
             if self.args.use_prior_verb_label_mask:
                 pred_obj_labels = outputs['pred_logits'][:,:,self.args.valid_obj_ids].argmax(-1)
                 tail_obj_ids = outputs['pred_rel_pairs'][:,:,1]
