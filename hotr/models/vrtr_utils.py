@@ -613,16 +613,14 @@ def plot_hoi_results(samples, results, targets, args, idx=0):
     boxes = box_ops.box_cxcywh_to_xyxy(results['pred_boxes'][idx].cpu()) * torch.tensor([w,h,w,h])
     box_scores, box_labels = results['pred_logits'][idx].softmax(-1)[:, :-1].cpu().max(-1)
 
-    ######## plt boxes ##########
-    plt.title(f"image_id={targets[idx]['image_id'].item()}")
-    plt.imshow(pil_img)
-    colors = COLORS * 100
-    for id, (sc, l, (xmin, ymin, xmax, ymax), c) in enumerate(zip(box_scores, box_labels, boxes, colors)):
-        if sc < 0.9: continue
-        plt.gca().add_patch(plt.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, fill=False, color=c))
-        text = f'{coco_obj_names[l]}-{str(id)}({sc:0.2f})'
-        plt.text(xmin, ymin, text, fontsize=10, bbox=dict(facecolor='white', alpha=0.5))
-    # plt.axis('off')
+    ####### proposals ##########
+    props = results['pred_rel_pairs'][idx]
+    prop_scores = results['pred_action_exists'][idx].sigmoid()
+    prop_obj_ids = props.unique()
+    prop_strs = ''
+    for qid, (head_id, tail_id) in enumerate(props):
+        prop_strs += f"q={qid} ({prop_scores[qid]: .2f}):\t{coco_obj_names[box_labels[head_id]]}-{head_id} ({box_scores[head_id]: .2f})\t ======>\t\t{coco_obj_names[box_labels[tail_id]]}-{tail_id}({box_scores[tail_id]: .2f})\n"
+    print(prop_strs)
 
     ####### top predicted hois ##########
     K = 50
@@ -645,6 +643,16 @@ def plot_hoi_results(samples, results, targets, args, idx=0):
         head_id, tail_id = results['pred_rel_pairs'][idx][qid]
         rel_strs += f"q={qid}:\t{coco_obj_names[box_labels[head_id]]}-{head_id} ({box_scores[head_id]: .2f})\t === {hico_action_names[qaction]} ({verb_scores[qid, qaction]: .2f}) ===>\t\t{coco_obj_names[box_labels[tail_id]]}-{tail_id}({box_scores[tail_id]: .2f})\n"
     print(rel_strs)
+
+    ######## plt boxes ##########
+    plt.title(f"image_id={targets[idx]['image_id'].item()}")
+    plt.imshow(pil_img)
+    colors = COLORS * 100
+    for id, (sc, l, (xmin, ymin, xmax, ymax), c) in enumerate(zip(box_scores, box_labels, boxes, colors)):
+        if sc > 0.9 or id in prop_obj_ids:
+            plt.gca().add_patch(plt.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, fill=False, color=c))
+            text = f'{coco_obj_names[l]}-{str(id)}({sc:0.2f})'
+            plt.text(xmin, ymin, text, fontsize=10, bbox=dict(facecolor='white', alpha=0.5))
 
     # plt.gca().yaxis.set_label_position("right")
     # plt.ylabel(rel_strs, rotation=0, labelpad=140, fontsize=8, loc='top')
