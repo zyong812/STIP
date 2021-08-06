@@ -10,7 +10,7 @@ import numpy as np
 from collections import defaultdict
 
 class HICOEvaluator():
-    def __init__(self, preds, gts, rare_triplets, non_rare_triplets, correct_mat):
+    def __init__(self, preds, gts, rare_triplets, non_rare_triplets, correct_mat, args):
         self.overlap_iou = 0.5
         self.max_hois = 100
 
@@ -58,7 +58,7 @@ class HICOEvaluator():
         for img_gts in gts:
             img_gts = {k: v.to('cpu').numpy() for k, v in img_gts.items() if k != 'id'}
             self.gts.append({
-                'annotations': [{'bbox': bbox, 'category_id': label} for bbox, label in zip(img_gts['boxes'], img_gts['labels'])],
+                'annotations': [{'bbox': bbox, 'category_id': args.valid_obj_ids.index(label)} for bbox, label in zip(img_gts['boxes'], img_gts['labels'])], # map to valid obj ids
                 'hoi_annotation': [{'subject_id': hoi[0], 'object_id': hoi[1], 'category_id': hoi[2]} for hoi in img_gts['hois']]
             })
             for hoi in self.gts[-1]['hoi_annotation']:

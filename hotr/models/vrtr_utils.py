@@ -474,11 +474,10 @@ vcoco_action_names = ['hold_obj', 'stand_agent', 'sit_instr', 'ride_instr', 'wal
 vcoco_valid_action_ids = [ 0,  2,  3,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 22, 24, 25, 26, 27, 28]
 
 def check_annotation(samples, annotations, mode='train', rel_num=20, idx=0, dataset='hico'):
+    obj_label_names = coco_obj_names
     if dataset == 'vcoco':
-        obj_label_names = coco_obj_names
         action_label_names = vcoco_action_names
     else:
-        obj_label_names = hico_obj_names
         action_label_names = hico_action_names
 
     img_tensors, img_masks = samples.decompose()

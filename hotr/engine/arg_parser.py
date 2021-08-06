@@ -141,6 +141,7 @@ def get_args_parser():
     parser.add_argument('--run_name', default='run_000001')
 
     # VRTR
+    parser.add_argument('--VRTR_relation_head', action='store_true', default=False)
     parser.add_argument('--finetune_detr', action='store_true', default=False)
     parser.add_argument('--use_high_resolution_relation_feature_map', action='store_true', default=False)
     return parser

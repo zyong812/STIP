@@ -294,8 +294,6 @@ class VRTRCriterion(nn.Module):
 
         idx = self._get_src_permutation_idx(indices)
         target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
-        if self.args.dataset_file == 'hico-det': # map to ids same as coco
-            target_classes_o = self.hico_valid_obj_ids.to(target_classes_o.device)[target_classes_o]
         target_classes = torch.full(src_logits.shape[:2], self.num_classes, dtype=torch.int64, device=src_logits.device)
         target_classes[idx] = target_classes_o
 

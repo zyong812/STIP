@@ -59,7 +59,7 @@ def hico_evaluate(model, postprocessors, data_loader, device, thr):
     gts = [img_gts for i, img_gts in enumerate(gts) if i in indices]
     
     evaluator = HICOEvaluator(preds, gts, data_loader.dataset.rare_triplets,
-                                  data_loader.dataset.non_rare_triplets, data_loader.dataset.correct_mat)
+                                  data_loader.dataset.non_rare_triplets, data_loader.dataset.correct_mat, model.args)
 
     stats = evaluator.evaluate()
 

@@ -93,9 +93,9 @@ class HICODetection(torch.utils.data.Dataset):
 
         if self.img_set == 'train':
             # Add index for confirming which boxes are kept after image transformation
-            classes = [(i, self._valid_obj_ids.index(obj['category_id'])) for i, obj in enumerate(img_anno['annotations'])]
+            classes = [(i, obj['category_id']) for i, obj in enumerate(img_anno['annotations'])]
         else:
-            classes = [self._valid_obj_ids.index(obj['category_id']) for obj in img_anno['annotations']]
+            classes = [obj['category_id'] for obj in img_anno['annotations']]
         classes = torch.tensor(classes, dtype=torch.int64)
 
         target = {}
@@ -182,6 +182,7 @@ class HICODetection(torch.utils.data.Dataset):
             hois = img_anno['hoi_annotation']
             bboxes = img_anno['annotations']
             for hoi in hois:
+                # mapped to valid obj ids for evaludation
                 triplet = (self._valid_obj_ids.index(bboxes[hoi['subject_id']]['category_id']),
                            self._valid_obj_ids.index(bboxes[hoi['object_id']]['category_id']),
                            self._valid_verb_ids.index(hoi['category_id']))
