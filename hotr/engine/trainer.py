@@ -12,6 +12,7 @@ import hotr.util.misc as utils
 import hotr.util.logger as loggers
 from typing import Iterable
 import wandb
+from hotr.models.vrtr_utils import check_annotation, plot_cross_attention, plot_hoi_results
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
@@ -54,6 +55,9 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         if max_norm > 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
         optimizer.step()
+
+        # check_annotation(samples, targets, mode='train', rel_num=20)
+        # plot_hoi_results(samples, outputs, targets, args=model.args)
 
         metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled)
         if "obj_class_error" in loss_dict:
