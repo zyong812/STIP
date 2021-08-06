@@ -110,12 +110,13 @@ class VRTR(nn.Module):
         for imgid in range(bs):
             # >>>>>>>>>>>> relation proposal <<<<<<<<<<<<<<<
             probs = outputs_class[-1, imgid].softmax(-1)
-            inst_scores, inst_labels = probs.max(-1)
-            human_instance_ids = (inst_labels==1).nonzero(as_tuple=False)
-            bg_instance_ids = (probs[:, -1] > 0.8)
+            inst_scores, inst_labels = probs[:, :-1].max(-1)
+            human_instance_ids = torch.logical_and(inst_scores>0.5, inst_labels==1).nonzero(as_tuple=False)
+            bg_instance_ids = (probs[:, -1] > 1)
 
             rel_mat = torch.zeros((num_nodes, num_nodes))
             rel_mat[human_instance_ids, ~bg_instance_ids] = 1 # subj is human, obj is not background
+            if self.args.dataset_file != 'vcoco': rel_mat.fill_diagonal_(0)
             if len(rel_mat.nonzero(as_tuple=False)) < self.args.num_hoi_queries: # ensure enough queries
                 tmp_id = np.random.choice(human_instance_ids.squeeze(1).tolist()) if len(human_instance_ids) > 0 else 0
                 rel_mat[tmp_id] = 1
@@ -130,15 +131,15 @@ class VRTR(nn.Module):
                     all_pairs = torch.cat([gt_rel_pairs[imgid], rel_pairs], dim=0)
                     gt_pair_count = len(gt_rel_pairs[imgid])
                     all_rel_reps = self.union_box_feature_extractor(all_pairs, relation_feature_map, outputs_coord[-1, imgid].detach(), inst_repr[imgid], obj_label_logits=outputs_class[-1, imgid], idx=imgid)
-                    p_relation_exist_logits = self.relation_proposal_mlp(all_rel_reps).squeeze()
+                    p_relation_exist_logits = self.relation_proposal_mlp(all_rel_reps)
 
                     gt_inds = torch.arange(gt_pair_count).to(p_relation_exist_logits.device)
-                    _, sort_rel_inds = p_relation_exist_logits.squeeze()[gt_pair_count:].sort(descending=True)
+                    _, sort_rel_inds = torch.cat([inst_scores[all_pairs], p_relation_exist_logits.sigmoid()], dim=-1).prod(-1)[gt_pair_count:].sort(descending=True)
                     sampled_rel_inds = torch.cat([gt_inds, sort_rel_inds+gt_pair_count])[:self.args.num_hoi_queries]
 
                     sampled_rel_pairs = all_pairs[sampled_rel_inds]
                     sampled_rel_reps = all_rel_reps[sampled_rel_inds]
-                    sampled_rel_pred_exists = p_relation_exist_logits[sampled_rel_inds]
+                    sampled_rel_pred_exists = p_relation_exist_logits.squeeze()[sampled_rel_inds]
                 else:
                     # random sampling
                     sampled_neg_inds = torch.randperm(len(rel_pairs))
@@ -148,14 +149,14 @@ class VRTR(nn.Module):
             else:
                 rel_pairs = rel_mat.nonzero(as_tuple=False)
                 rel_reps = self.union_box_feature_extractor(rel_pairs, relation_feature_map, outputs_coord[-1, imgid].detach(), inst_repr[imgid], obj_label_logits=outputs_class[-1, imgid], idx=imgid)
-                p_relation_exist_logits = self.relation_proposal_mlp(rel_reps).squeeze()
+                p_relation_exist_logits = self.relation_proposal_mlp(rel_reps)
 
-                _, sort_rel_inds = p_relation_exist_logits.squeeze().sort(descending=True)
-                sampled_rel_inds = sort_rel_inds[:self.args.num_hoi_queries] # todo: 可以调大试试
+                _, sort_rel_inds = torch.cat([inst_scores[rel_pairs], p_relation_exist_logits.sigmoid()], dim=-1).prod(-1).sort(descending=True)
+                sampled_rel_inds = sort_rel_inds[:self.args.num_hoi_queries]
 
                 sampled_rel_pairs = rel_pairs[sampled_rel_inds]
                 sampled_rel_reps = rel_reps[sampled_rel_inds]
-                sampled_rel_pred_exists = p_relation_exist_logits[sampled_rel_inds]
+                sampled_rel_pred_exists = p_relation_exist_logits.squeeze()[sampled_rel_inds]
 
             # >>>>>>>>>>>> relation classification <<<<<<<<<<<<<<<
             memory_role_embedding, memory_union_mask, tgt_mask = None, None, None
