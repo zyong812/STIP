@@ -225,7 +225,7 @@ def main(args):
                     if isinstance(lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau): lr_scheduler.step(test_stats['mAP'])
             print('-'*100)
 
-        # if epoch%10==0:
+        # if epoch%2==0:
         #     save_ckpt(args, model_without_ddp, optimizer, lr_scheduler, epoch, filename=f'checkpoint_{epoch}')
 
     total_time = time.time() - start_time
