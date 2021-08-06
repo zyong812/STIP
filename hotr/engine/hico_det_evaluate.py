@@ -46,13 +46,11 @@ def hico_det_evaluate(model, postprocessors, data_loader, device, args):
     stats = do_detection_evaluation(preds, gts, hico_valid_obj_ids)
     return stats
 
-
-
 def do_detection_evaluation(predictions, groundtruths, hico_valid_obj_ids):
     # create a Coco-like object that we can use to evaluate detection!
     anns = []
     for image_id, gt in groundtruths.items():
-        labels = hico_valid_obj_ids[gt['labels'].tolist()].tolist() # map to coco like ids
+        labels = gt['labels'].tolist() # map to coco like ids
         boxes = gt['boxes'].tolist() # xyxy
         for cls, box in zip(labels, boxes):
             anns.append({
