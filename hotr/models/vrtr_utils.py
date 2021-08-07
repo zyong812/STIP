@@ -643,12 +643,17 @@ def plot_hoi_results(samples, results, targets, args, idx=0):
         rel_strs += f"q={qid}:\t{coco_obj_names[box_labels[head_id]]}-{head_id} ({box_scores[head_id]: .2f})\t === {hico_action_names[qaction]} ({verb_scores[qid, qaction]: .2f}) ===>\t\t{coco_obj_names[box_labels[tail_id]]}-{tail_id}({box_scores[tail_id]: .2f})\n"
     print(rel_strs)
 
+    ######## detr match ##########
+    gt2det_dict = {int(g): int(d)  for d, g in zip(*results['det2gt_indices'][idx])}
+    for i in range(len(gt2det_dict)): print(f"{i} ---> {gt2det_dict[i]}")
+
     ######## plt boxes ##########
     plt.title(f"image_id={targets[idx]['image_id'].item()}")
     plt.imshow(pil_img)
     colors = COLORS * 100
     for id, (sc, l, (xmin, ymin, xmax, ymax), c) in enumerate(zip(box_scores, box_labels, boxes, colors)):
         if sc > 0.9 or id in prop_obj_ids:
+        # if id in gt2det_dict.values():
             plt.gca().add_patch(plt.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, fill=False, color=c))
             text = f'{coco_obj_names[l]}-{str(id)}({sc:0.2f})'
             plt.text(xmin, ymin, text, fontsize=10, bbox=dict(facecolor='white', alpha=0.5))
