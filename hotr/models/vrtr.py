@@ -105,7 +105,7 @@ class VRTR(nn.Module):
         memory_input, memory_input_mask = features[0].decompose()
         memory_pos = pos[0]
         if self.args.relation_feature_map_from == 'backbone':
-            relation_feature_map = features[-1]
+            relation_feature_map = features[0]
         elif self.args.relation_feature_map_from == 'detr_encoder':
             relation_feature_map = NestedTensor(detr_encoder_outs, memory_input_mask)
             memory_input = detr_encoder_outs
