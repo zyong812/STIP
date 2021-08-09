@@ -467,8 +467,8 @@ class VRTRCriterion(nn.Module):
         probs = inputs.sigmoid()
         pos_inds = targets.eq(1).float()
         neg_inds = targets.lt(1).float()
-        pos_loss = torch.log(probs) * torch.pow(1 - probs, 2) * pos_inds
-        neg_loss = torch.log(1 - probs) * torch.pow(probs, 2) * neg_inds
+        pos_loss = torch.log(probs) * torch.pow(1 - probs, self.args.proposal_focal_loss_gamma) * pos_inds
+        neg_loss = torch.log(1 - probs) * torch.pow(probs, self.args.proposal_focal_loss_gamma) * neg_inds
         pos_loss = pos_loss.sum()
         neg_loss = neg_loss.sum()
 
@@ -487,8 +487,8 @@ class VRTRCriterion(nn.Module):
         # focal loss to balance positive/negative
         pos_inds = targets.eq(1).float()
         neg_inds = targets.lt(1).float()
-        pos_loss = torch.log(probs) * torch.pow(1 - probs, 2) * pos_inds
-        neg_loss = torch.log(1 - probs) * torch.pow(probs, 2) * neg_inds
+        pos_loss = torch.log(probs) * torch.pow(1 - probs, self.args.action_focal_loss_gamma) * pos_inds
+        neg_loss = torch.log(1 - probs) * torch.pow(probs, self.args.action_focal_loss_gamma) * neg_inds
         if prior_verb_label_mask is not None: # mask invalid predictions
             pos_loss = pos_loss * prior_verb_label_mask
             neg_loss = neg_loss * prior_verb_label_mask

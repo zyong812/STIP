@@ -251,7 +251,7 @@ if __name__ == '__main__':
     parser.add_argument('--train_detr', action='store_true', default=False)
     parser.add_argument('--finetune_detr_weight', default=0.1, type=float)
     parser.add_argument('--lr_detr', default=1e-5, type=float)
-    parser.add_argument('--reduce_lr_on_plateau_patience', default=3, type=int)
+    parser.add_argument('--reduce_lr_on_plateau_patience', default=2, type=int)
     parser.add_argument('--reduce_lr_on_plateau_factor', default=0.2, type=float)
 
     # loss
@@ -263,8 +263,8 @@ if __name__ == '__main__':
     parser.add_argument('--action_loss_coef', default=1, type=float)
 
     # model
-    parser.add_argument('--use_tail_semantic_feature', action='store_true', default=False)
-    parser.add_argument('--use_memory_union_mask', action='store_true', default=False)
+    parser.add_argument('--not_use_tail_semantic_feature', dest='use_tail_semantic_feature', action='store_false', default=True)
+    parser.add_argument('--not_use_memory_union_mask', dest='use_memory_union_mask', action='store_true', default=True)
     parser.add_argument('--use_relation_tgt_mask', action='store_true', default=False)
     parser.add_argument('--use_relation_tgt_mask_attend_topk', default=10, type=int)
     parser.add_argument('--use_memory_role_embedding', action='store_true', default=False)
