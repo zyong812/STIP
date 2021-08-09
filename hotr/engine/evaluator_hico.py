@@ -32,15 +32,13 @@ def hico_evaluate(model, postprocessors, data_loader, device, thr):
         # dec_selfattn_weights, dec_crossattn_weights = [], []
         # hook = model.interaction_decoder.layers[-1].multihead_attn.register_forward_hook(lambda self, input, output: dec_crossattn_weights.append(output[1]))
 
-        outputs = model(samples)
+        outputs = model(samples, targets) # input targets just for viusalization
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
         results = postprocessors['hoi'](outputs, orig_target_sizes, threshold=thr, dataset='hico-det')
         hoi_recognition_time.append(results[0]['hoi_recognition_time'] * 1000)
 
         # check_annotation(samples, targets, mode='eval', rel_num=20)
         # plot_cross_attention(samples, outputs, targets, dec_crossattn_weights); hook.remove()
-        # if targets[0]['image_id'].item() in [48, 88]:
-        #     print('xxx')
         # plot_hoi_results(samples, outputs, targets, args=model.args)
 
         preds.extend(list(itertools.chain.from_iterable(utils.all_gather(results))))

@@ -84,10 +84,9 @@ class VRTR(nn.Module):
         outputs_class = self.detr.class_embed(hs)
         outputs_coord = self.detr.bbox_embed(hs).sigmoid()
         # -----------------------------------------------
-        det2gt_indices = None
+        detr_outs = {"pred_logits": outputs_class[-1], "pred_boxes": outputs_coord[-1]}
+        det2gt_indices = self.detr_matcher(detr_outs, targets)
         if self.training:
-            detr_outs = {"pred_logits": outputs_class[-1], "pred_boxes": outputs_coord[-1]}
-            det2gt_indices = self.detr_matcher(detr_outs, targets)
             gt_rel_pairs = []
             for (ds, gs), t in zip(det2gt_indices, targets):
                 gt2det_map = torch.zeros(len(gs)).to(device=ds.device, dtype=ds.dtype)

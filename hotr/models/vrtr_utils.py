@@ -616,7 +616,7 @@ def plot_hoi_results(samples, results, targets, args, idx=0):
     props = results['pred_rel_pairs'][idx]
     prop_scores = results['pred_action_exists'][idx].sigmoid()
     prop_obj_ids = props.unique()
-    prop_strs = ''
+    prop_strs = '====================================== Proposals ======================================\n'
     for qid, (head_id, tail_id) in enumerate(props):
         prop_strs += f"q={qid} ({prop_scores[qid]: .2f}):\t{coco_obj_names[box_labels[head_id]]}-{head_id} ({box_scores[head_id]: .2f})\t ======>\t\t{coco_obj_names[box_labels[tail_id]]}-{tail_id}({box_scores[tail_id]: .2f})\n"
     print(prop_strs)
@@ -637,15 +637,17 @@ def plot_hoi_results(samples, results, targets, args, idx=0):
     _, sort_ids = hoi_scores.view(-1).sort(descending=True)
     topk_qids, topk_actions = sort_ids[:K] // action_num, sort_ids[:K] % action_num
 
-    rel_strs = ''
+    rel_strs = '====================================== Relations ======================================\n'
     for qid, qaction in zip(topk_qids, topk_actions):
         head_id, tail_id = results['pred_rel_pairs'][idx][qid]
         rel_strs += f"q={qid}:\t{coco_obj_names[box_labels[head_id]]}-{head_id} ({box_scores[head_id]: .2f})\t === {hico_action_names[qaction]} ({verb_scores[qid, qaction]: .2f}) ===>\t\t{coco_obj_names[box_labels[tail_id]]}-{tail_id}({box_scores[tail_id]: .2f})\n"
     print(rel_strs)
 
     ######## detr match ##########
-    gt2det_dict = {int(g): int(d)  for d, g in zip(*results['det2gt_indices'][idx])}
-    for i in range(len(gt2det_dict)): print(f"{i} ---> {gt2det_dict[i]}")
+    if 'det2gt_indices' in results:
+        print('GT -> DET match:')
+        gt2det_dict = {int(g): int(d) for d, g in zip(*results['det2gt_indices'][idx])}
+        for i in range(len(gt2det_dict)): print(f"{i} ---> {gt2det_dict[i]}")
 
     ######## plt boxes ##########
     plt.title(f"image_id={targets[idx]['image_id'].item()}")
