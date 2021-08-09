@@ -540,7 +540,7 @@ def plot_cross_attention(samples, results, targets, attn_maps, idx=0, dataset='h
     boxes = box_ops.box_cxcywh_to_xyxy(results['pred_boxes'][idx].cpu()) * torch.tensor([w,h,w,h])
     box_scores, box_labels = results['pred_logits'][idx].softmax(-1)[:, :-1].cpu().max(-1)
 
-    pair_id_counts = 1
+    pair_id_counts = 3
     # pair_id_counts = 3
     _, axes = plt.subplots(1, pair_id_counts+1, figsize=(8*(pair_id_counts+1), 8))
     ######## plt boxes ##########
@@ -622,7 +622,7 @@ def plot_hoi_results(samples, results, targets, args, idx=0):
     print(prop_strs)
 
     ####### top predicted hois ##########
-    K = 50
+    K = 20
     tail_scores = box_scores[results['pred_rel_pairs'][idx][:, -1]]
     verb_scores = results['pred_actions'][idx].sigmoid().cpu()
     hoi_scores = verb_scores * tail_scores.unsqueeze(1)
@@ -644,7 +644,7 @@ def plot_hoi_results(samples, results, targets, args, idx=0):
     print(rel_strs)
 
     ######## detr match ##########
-    if 'det2gt_indices' in results:
+    if results['det2gt_indices'] is not None:
         print('GT -> DET match:')
         gt2det_dict = {int(g): int(d) for d, g in zip(*results['det2gt_indices'][idx])}
         for i in range(len(gt2det_dict)): print(f"{i} ---> {gt2det_dict[i]}")
