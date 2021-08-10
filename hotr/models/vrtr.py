@@ -556,7 +556,7 @@ class VRTRPostProcess(nn.Module):
             prob = F.softmax(out_logits, -1)
             scores, labels = prob[..., :-1].max(-1)
 
-            pair_actions = outputs['pred_actions'].sigmoid()
+            pair_actions = [a.sigmoid() for a in outputs['pred_actions']]
             # pair_actions = outputs['pred_actions'].sigmoid() * outputs['pred_action_exists'].sigmoid() # cls_score ＊　interactiveness score
 
             results = []
