@@ -51,10 +51,10 @@ class VRTR(nn.Module):
         self.rel_query_pre_proj = make_fc(rel_rep_dim, self.args.hidden_dim)
 
         if args.use_memory_role_embedding:
-            # self.role_embeddings = nn.Embedding(6, self.args.hidden_dim) # 0-pad, 1-image, 2-union, 3-subj, 4-obj, 5-intersection
-            field_size = 8
-            self.head_role_field = nn.Parameter(torch.zeros(1, self.args.hidden_dim, field_size, field_size))
-            self.tail_role_field = nn.Parameter(torch.zeros(1, self.args.hidden_dim, field_size, field_size))
+            self.role_embeddings = nn.Embedding(6, self.args.hidden_dim) # 0-pad, 1-image, 2-union, 3-subj, 4-obj, 5-intersection
+            # field_size = 8
+            # self.head_role_field = nn.Parameter(torch.zeros(1, self.args.hidden_dim, field_size, field_size))
+            # self.tail_role_field = nn.Parameter(torch.zeros(1, self.args.hidden_dim, field_size, field_size))
 
         if self.args.no_interaction_decoder:
             self.args.hoi_aux_loss = False
