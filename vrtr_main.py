@@ -254,6 +254,7 @@ if __name__ == '__main__':
     parser.add_argument('--reduce_lr_on_plateau_patience', default=2, type=int)
     parser.add_argument('--reduce_lr_on_plateau_factor', default=0.2, type=float)
     parser.add_argument('--apply_nms_on_detr', action='store_true', default=False)
+    parser.add_argument('--adaptive_relation_query_num', action='store_true', default=False)
 
     # loss
     parser.add_argument('--proposal_focal_loss_alpha', default=0.75, type=float) # large alpha for high recall

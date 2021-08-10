@@ -117,16 +117,19 @@ class VRTR(nn.Module):
             inst_scores, inst_labels = probs[:, :-1].max(-1)
             human_instance_ids = torch.logical_and(inst_scores>0.5, inst_labels==1).nonzero(as_tuple=False)
             bg_instance_ids = (probs[:, -1] > 1)
-            if self.args.apply_nms_on_detr:
+            if self.args.apply_nms_on_detr and not self.training:
                 suppress_ids = self.apply_nms(inst_scores, inst_labels, outputs_coord[-1, imgid])
                 bg_instance_ids[suppress_ids] = True
 
             rel_mat = torch.zeros((num_nodes, num_nodes))
             rel_mat[human_instance_ids, ~bg_instance_ids] = 1 # subj is human, obj is not background
             if self.args.dataset_file != 'vcoco': rel_mat.fill_diagonal_(0)
-            if len(rel_mat.nonzero(as_tuple=False)) < self.args.num_hoi_queries: # ensure enough queries
-                tmp_id = np.random.choice(human_instance_ids.squeeze(1).tolist()) if len(human_instance_ids) > 0 else 0
-                rel_mat[tmp_id] = 1
+            if self.args.adaptive_relation_query_num:
+                if len(rel_mat.nonzero(as_tuple=False)) == 0: rel_mat[0,1] = 1
+            else: # ensure enough queries
+                if len(rel_mat.nonzero(as_tuple=False)) < self.args.num_hoi_queries:
+                    tmp_id = np.random.choice(human_instance_ids.squeeze(1).tolist()) if len(human_instance_ids) > 0 else 0
+                    rel_mat[tmp_id] = 1
 
             if self.training:
                 rel_mat[gt_rel_pairs[imgid][:,:1], ~bg_instance_ids] = 1
@@ -199,17 +202,15 @@ class VRTR(nn.Module):
             pred_actions.append(action_logits)
             pred_rel_exists.append(sampled_rel_pred_exists)
 
-        pred_actions = torch.cat(pred_actions, dim=2).transpose(1,2)
         out = {
             "pred_logits": outputs_class[-1],
             "pred_boxes": outputs_coord[-1],
-            "pred_rel_pairs": torch.stack(pred_rel_pairs, dim=0),
-            "pred_actions": pred_actions[-1],
-            "pred_action_exists": torch.stack(pred_rel_exists, dim=0),
+            "pred_rel_pairs": pred_rel_pairs,
+            "pred_actions": [p[-1].squeeze(1) for p in pred_actions],
+            "pred_action_exists": pred_rel_exists,
             "det2gt_indices": det2gt_indices,
             "hoi_recognition_time": 0,
         }
-
         if self.args.hoi_aux_loss: out['hoi_aux_outputs'] = self._set_hoi_aux_loss(pred_actions)
         if self.args.train_detr and self.args.aux_loss: out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
 
@@ -217,7 +218,7 @@ class VRTR(nn.Module):
 
     @torch.jit.unused
     def _set_hoi_aux_loss(self, pred_actions):
-        return [{'pred_actions': a} for a in pred_actions[:-1]]
+        return [{'pred_actions': [p[l].squeeze(1) for p in pred_actions]} for l in range(self.args.hoi_dec_layers - 1)]
 
     @torch.jit.unused
     def _set_aux_loss(self, outputs_class, outputs_coord):
@@ -427,29 +428,29 @@ class VRTRCriterion(nn.Module):
                 if (int(rel[0]) in det2gt_map) and (int(rel[1]) in det2gt_map):
                     rel_pair_targets[idx] = gt_relation_map[det2gt_map[int(rel[0])], det2gt_map[int(rel[1])]]
             all_rel_pair_targets.append(rel_pair_targets)
-        all_rel_pair_targets = torch.stack(all_rel_pair_targets, dim=0)
+        all_rel_pair_targets = torch.cat(all_rel_pair_targets, dim=0)
 
         prior_verb_label_mask = None
         if self.args.dataset_file == 'hico-det':
             # no_interaction_id = self.args.action_names.index('no_interaction')
             # rel_proposal_targets = (all_rel_pair_targets[..., self.valid_ids].sum(-1) - all_rel_pair_targets[..., no_interaction_id] > 0).float()
-            rel_proposal_targets = all_rel_pair_targets[..., self.valid_ids].sum(-1).float()
+            rel_proposal_targets = (all_rel_pair_targets[..., self.valid_ids].sum(-1) > 0).float()
             if self.args.use_prior_verb_label_mask:
                 pred_obj_labels = outputs['pred_logits'][:,:,self.args.valid_obj_ids].argmax(-1)
-                tail_obj_ids = outputs['pred_rel_pairs'][:,:,1]
-                tail_obj_labels = torch.stack([l[id] for l, id in zip(pred_obj_labels, tail_obj_ids)])
+                tail_obj_ids = [p[:,1] for p in outputs['pred_rel_pairs']]
+                tail_obj_labels = torch.cat([l[id] for l, id in zip(pred_obj_labels, tail_obj_ids)])
                 prior_verb_label_mask = self.args.correct_mat.transpose(0,1)[tail_obj_labels]
         else:
             rel_proposal_targets = (all_rel_pair_targets[..., self.valid_ids].sum(-1) > 0).float()
 
-        loss_proposal = self.proposal_loss(outputs['pred_action_exists'], rel_proposal_targets)
-        loss_action = self.action_loss(outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], prior_verb_label_mask)
+        loss_proposal = self.proposal_loss(torch.cat(outputs['pred_action_exists'], dim=0), rel_proposal_targets)
+        loss_action = self.action_loss(torch.cat(outputs['pred_actions'], dim=0)[..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], prior_verb_label_mask)
 
         loss_dict = {'loss_proposal': loss_proposal, 'loss_act': loss_action}
         if 'hoi_aux_outputs' in outputs:
             for i, aux_outputs in enumerate(outputs['hoi_aux_outputs']):
                 aux_loss = {
-                    f'loss_act_{i}': self.action_loss(aux_outputs['pred_actions'][..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], prior_verb_label_mask)
+                    f'loss_act_{i}': self.action_loss(torch.cat(aux_outputs['pred_actions'], dim=0)[..., self.valid_ids], all_rel_pair_targets[..., self.valid_ids], prior_verb_label_mask)
                 }
                 loss_dict.update(aux_loss)
 
@@ -489,7 +490,6 @@ class VRTRCriterion(nn.Module):
         # loss = loss_bce[targets<0.5].mean() # neg loss
         # if targets.sum() > 0:
         #     loss += loss_bce[targets>0.5].mean() # pos loss
-
 
         # focal loss to balance positive/negative
         probs = inputs.sigmoid()
@@ -550,8 +550,8 @@ class VRTRPostProcess(nn.Module):
         boxes = boxes * scale_fct[:, None, :]
 
         # for relationship post-processing
-        h_indices = outputs['pred_rel_pairs'][:,:,0]
-        o_indices = outputs['pred_rel_pairs'][:,:,1]
+        h_indices = [p[:, 0] for p in outputs['pred_rel_pairs']]
+        o_indices = [p[:, 1] for p in outputs['pred_rel_pairs']]
         if dataset == 'vcoco':
             prob = F.softmax(out_logits, -1)
             scores, labels = prob[..., :-1].max(-1)
@@ -597,12 +597,15 @@ class VRTRPostProcess(nn.Module):
             # tail classification score
             _valid_obj_ids = self.args.valid_obj_ids + [self.args.valid_obj_ids[-1]+1]
             out_obj_logits = outputs['pred_logits'][..., _valid_obj_ids]
-            out_obj_logits = torch.stack([lgts[o_ids] for o_ids, lgts in zip(o_indices, out_obj_logits)], dim=0)
-            obj_scores, obj_labels = F.softmax(out_obj_logits, -1)[..., :-1].max(-1)
+            obj_scores, obj_labels = [], []
+            for o_ids, lgts in zip(o_indices, out_obj_logits):
+                img_obj_scores, img_obj_labels = F.softmax(lgts[o_ids], -1)[..., :-1].max(-1)
+                obj_scores.append(img_obj_scores)
+                obj_labels.append(img_obj_labels)
 
             # actions
             out_verb_logits = outputs['pred_actions']
-            verb_scores = out_verb_logits.sigmoid()
+            verb_scores = [l.sigmoid() for l in out_verb_logits]
             # verb_scores = out_verb_logits.sigmoid() * outputs['pred_action_exists'].sigmoid().unsqueeze(-1) # interactiveness
 
             # accumulate results (iterate through interaction queries)
