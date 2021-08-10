@@ -117,6 +117,9 @@ class VRTR(nn.Module):
             inst_scores, inst_labels = probs[:, :-1].max(-1)
             human_instance_ids = torch.logical_and(inst_scores>0.5, inst_labels==1).nonzero(as_tuple=False)
             bg_instance_ids = (probs[:, -1] > 1)
+            if self.args.apply_nms_on_detr:
+                suppress_ids = self.apply_nms(inst_scores, inst_labels, outputs_coord[-1, imgid])
+                bg_instance_ids[suppress_ids] = True
 
             rel_mat = torch.zeros((num_nodes, num_nodes))
             rel_mat[human_instance_ids, ~bg_instance_ids] = 1 # subj is human, obj is not background
@@ -219,6 +222,30 @@ class VRTR(nn.Module):
     @torch.jit.unused
     def _set_aux_loss(self, outputs_class, outputs_coord):
         return [{"pred_logits": l, "pred_boxes": b} for l, b in zip(outputs_class[:-1], outputs_coord[:-1])]
+
+    # merge boxes (NMS)
+    def apply_nms(self, inst_scores, inst_labels, cxcywh_boxes, threshold=0.75):
+        xyxy_boxes = box_ops.box_cxcywh_to_xyxy(cxcywh_boxes)
+        box_areas = (xyxy_boxes[:, 2:] - xyxy_boxes[:, :2]).prod(-1)
+        box_area_sum = box_areas.unsqueeze(1) + box_areas.unsqueeze(0)
+
+        union_boxes = torch.cat([torch.min(xyxy_boxes.unsqueeze(1)[:, :, :2], xyxy_boxes.unsqueeze(0)[:, :, :2]),
+                                 torch.max(xyxy_boxes.unsqueeze(1)[:, :, 2:], xyxy_boxes.unsqueeze(0)[:, :, 2:])], dim=-1)
+        union_area = (union_boxes[:,:,2:] - union_boxes[:,:,:2]).prod(-1)
+        iou = torch.clamp(box_area_sum - union_area, min=0) / union_area
+        box_match_mat = torch.logical_and(iou > threshold, inst_labels.unsqueeze(1) == inst_labels.unsqueeze(0))
+
+        suppress_ids = []
+        for box_match in box_match_mat:
+            group_ids = box_match.nonzero(as_tuple=False).squeeze(1)
+            if len(group_ids) > 1:
+                max_score_inst_id = group_ids[inst_scores[group_ids].argmax()]
+                bg_ids = group_ids[group_ids!=max_score_inst_id]
+                suppress_ids.append(bg_ids)
+                box_match_mat[:, bg_ids] = False
+        if len(suppress_ids) > 0:
+            suppress_ids = torch.cat(suppress_ids, dim=0)
+        return suppress_ids
 
     def generate_layout_masks(self, rel_pairs, feature_masks, boxes, idx):
         xyxy_boxes = box_ops.box_cxcywh_to_xyxy(boxes).clamp(0, 1)
