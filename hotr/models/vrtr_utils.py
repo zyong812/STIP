@@ -524,7 +524,7 @@ def check_annotation(samples, annotations, mode='train', rel_num=20, idx=0, data
 
 COLORS = [[0.000, 0.447, 0.741], [0.850, 0.325, 0.098], [0.929, 0.694, 0.125],
           [0.494, 0.184, 0.556], [0.466, 0.674, 0.188], [0.301, 0.745, 0.933]]
-def plot_cross_attention(samples, results, targets, attn_maps, idx=0, dataset='hico'):
+def plot_cross_attention(samples, results, targets, attn_maps, idx=0, dataset='hico', topk_qids=None):
     if dataset == 'vcoco':
         action_label_names = vcoco_action_names
     else:
@@ -541,7 +541,13 @@ def plot_cross_attention(samples, results, targets, attn_maps, idx=0, dataset='h
     box_scores, box_labels = results['pred_logits'][idx].softmax(-1)[:, :-1].cpu().max(-1)
 
     pair_id_counts = 3
-    # pair_id_counts = 3
+    if topk_qids is not None:
+        plot_qids = []
+        for q in topk_qids:
+            if q not in plot_qids and len(plot_qids) < pair_id_counts :
+                plot_qids.append(q)
+    else:
+        plot_qids = list(range(pair_id_counts))
     _, axes = plt.subplots(1, pair_id_counts+1, figsize=(8*(pair_id_counts+1), 8))
     ######## plt boxes ##########
     axes[0].set_title(f"image_id={targets[idx]['image_id'].item()}")
@@ -554,10 +560,10 @@ def plot_cross_attention(samples, results, targets, attn_maps, idx=0, dataset='h
         axes[0].text(xmin, ymin, text, fontsize=14, bbox=dict(facecolor='yellow', alpha=0.5))
     axes[0].set_axis_off()
 
-    for pair_id in range(pair_id_counts):
+    for aidx, pair_id in enumerate(plot_qids):
         ######## specific relation ##########
-        subj_id, obj_id = results['pred_rel_pairs'][idx, pair_id]
-        action_probs = results['pred_actions'][idx, pair_id].sigmoid().cpu()
+        subj_id, obj_id = results['pred_rel_pairs'][idx][pair_id]
+        action_probs = results['pred_actions'][idx][pair_id].sigmoid().cpu()
         if dataset == 'vcoco':
             for k in range(len(action_probs)):
                 if k not in vcoco_valid_action_ids: action_probs[k] = -1
@@ -574,29 +580,31 @@ def plot_cross_attention(samples, results, targets, attn_maps, idx=0, dataset='h
         pair_attention = F.interpolate(pair_attention.unsqueeze(0).unsqueeze(1), size=pil_img.shape[:-1], mode='bilinear').squeeze().cpu().numpy()
 
         show_img = pil_img * 0.3 + 0.7 * pair_attention[:,:,None]
-        axes[pair_id+1].imshow(show_img)
+        axes[aidx+1].imshow(show_img)
 
         ######## relation pair boxes ##########
         # head
         hxmin, hymin, hxmax, hymax = boxes[subj_id]
-        axes[pair_id+1].add_patch(plt.Rectangle((hxmin, hymin), hxmax - hxmin, hymax - hymin, fill=False, color='red', linewidth=3))
+        axes[aidx+1].add_patch(plt.Rectangle((hxmin, hymin), hxmax - hxmin, hymax - hymin, fill=False, color='red', linewidth=3))
         text = f'{coco_obj_names[box_labels[subj_id]]}({box_scores[subj_id]: 0.2f}'
-        axes[pair_id+1].text(hxmin, hymin, text, fontsize=14, bbox=dict(facecolor='red', alpha=0.5))
+        axes[aidx+1].text(hxmin, hymin, text, fontsize=14, bbox=dict(facecolor='red', alpha=0.5))
 
         # tail
         txmin, tymin, txmax, tymax = boxes[obj_id]
-        axes[pair_id+1].add_patch(plt.Rectangle((txmin, tymin), txmax - txmin, tymax - tymin, fill=False, color='yellow', linewidth=3))
+        axes[aidx+1].add_patch(plt.Rectangle((txmin, tymin), txmax - txmin, tymax - tymin, fill=False, color='yellow', linewidth=3))
         text = f'{coco_obj_names[box_labels[obj_id]]}({box_scores[obj_id]: 0.2f}'
-        axes[pair_id+1].text(txmin, tymin, text, fontsize=14, bbox=dict(facecolor='yellow', alpha=0.5))
+        axes[aidx+1].text(txmin, tymin, text, fontsize=14, bbox=dict(facecolor='yellow', alpha=0.5))
 
         # head -> tail arrow
         ax1, ay1, ax2, ay2 = (hxmin+hxmax) / 2, (hymin+hymax) / 2, (txmin+txmax) / 2, (tymin+tymax) / 2
         # axes[1].add_patch(patches.FancyArrow(ax1, ay1, ax2-ax1, ay2-ay1, color='blue', linewidth=5))
         # axes[1].arrow(ax1, ay1, ax2-ax1, ay2-ay1, color='blue')
-        axes[pair_id+1].arrow(ax1, ay1, ax2-ax1, ay2-ay1, head_width=20, head_length=20, color='blue', linewidth=5)
+        axes[aidx+1].plot(ax1, ay1, 'o', color='red', markersize=20)
+        axes[aidx+1].arrow(ax1, ay1, ax2-ax1, ay2-ay1, head_width=10, head_length=10, color='orange', linewidth=8)
 
-        axes[pair_id+1].set_title(pair_action_label_names, fontsize=20)
-        axes[pair_id+1].set_axis_off()
+        axes[aidx+1].set_title(pair_action_label_names, fontsize=20)
+        axes[aidx+1].set_axis_off()
+        print(pair_id)
 
     plt.show()
     print(pair_action_label_names)
@@ -664,3 +672,4 @@ def plot_hoi_results(samples, results, targets, args, idx=0):
     # plt.ylabel(rel_strs, rotation=0, labelpad=140, fontsize=8, loc='top')
     plt.show()
     print('plot_hoi_results')
+    return topk_qids.tolist()
