@@ -9,8 +9,10 @@
 import numpy as np
 from collections import defaultdict
 
+hico_valid_obj_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 27, 28, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 67, 70, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 85, 86, 87, 88, 89, 90]
+
 class HICOEvaluator():
-    def __init__(self, preds, gts, rare_triplets, non_rare_triplets, correct_mat, args):
+    def __init__(self, preds, gts, rare_triplets, non_rare_triplets, correct_mat):
         self.overlap_iou = 0.5
         self.max_hois = 100
 
@@ -58,7 +60,7 @@ class HICOEvaluator():
         for img_gts in gts:
             img_gts = {k: v.to('cpu').numpy() for k, v in img_gts.items() if k != 'id'}
             self.gts.append({
-                'annotations': [{'bbox': bbox, 'category_id': args.valid_obj_ids.index(label)} for bbox, label in zip(img_gts['boxes'], img_gts['labels'])], # map to valid obj ids
+                'annotations': [{'bbox': bbox, 'category_id': hico_valid_obj_ids.index(label)} for bbox, label in zip(img_gts['boxes'], img_gts['labels'])], # map to valid obj ids
                 'hoi_annotation': [{'subject_id': hoi[0], 'object_id': hoi[1], 'category_id': hoi[2]} for hoi in img_gts['hois']]
             })
             for hoi in self.gts[-1]['hoi_annotation']:
