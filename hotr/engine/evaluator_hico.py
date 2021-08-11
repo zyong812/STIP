@@ -38,8 +38,8 @@ def hico_evaluate(model, postprocessors, data_loader, device, thr):
         hoi_recognition_time.append(results[0]['hoi_recognition_time'] * 1000)
 
         # check_annotation(samples, targets, mode='eval', rel_num=20)
-        # plot_cross_attention(samples, outputs, targets, dec_crossattn_weights); hook.remove()
-        # plot_hoi_results(samples, outputs, targets, args=model.args)
+        # topk_qids = plot_hoi_results(samples, outputs, targets, args=model.args)
+        # plot_cross_attention(samples, outputs, targets, dec_crossattn_weights, topk_qids=topk_qids); hook.remove()
 
         preds.extend(list(itertools.chain.from_iterable(utils.all_gather(results))))
         # For avoiding a runtime error, the copy is used
