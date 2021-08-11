@@ -52,6 +52,10 @@ class VRTR(nn.Module):
 
         if args.use_memory_role_embedding:
             self.role_embeddings = nn.Embedding(6, self.args.hidden_dim) # 0-pad, 1-image, 2-union, 3-subj, 4-obj, 5-intersection
+            self.role_content_aware_mapping = nn.Sequential(
+                make_fc(self.args.hidden_dim * 2, self.args.hidden_dim), nn.ReLU(),
+                make_fc(self.args.hidden_dim, self.args.hidden_dim)
+            )
             # field_size = 8
             # self.head_role_field = nn.Parameter(torch.zeros(1, self.args.hidden_dim, field_size, field_size))
             # self.tail_role_field = nn.Parameter(torch.zeros(1, self.args.hidden_dim, field_size, field_size))
@@ -110,6 +114,7 @@ class VRTR(nn.Module):
         elif self.args.relation_feature_map_from == 'detr_encoder':
             relation_feature_map = NestedTensor(detr_encoder_outs, memory_input_mask)
             memory_input = detr_encoder_outs
+        memory_input = self.memory_input_proj(memory_input)
 
         for imgid in range(bs):
             # >>>>>>>>>>>> relation proposal <<<<<<<<<<<<<<<
@@ -179,6 +184,9 @@ class VRTR(nn.Module):
                 role_map = (~union_mask).long() + (~memory_input_mask[imgid:imgid+1]).long() + (~subj_mask).long() + (~obj_mask).long()*2
                 # plt.imshow(role_map[0].cpu().numpy(), cmap=plt.cm.hot_r); plt.colorbar(); plt.show()
                 memory_role_embedding = self.role_embeddings(role_map)
+                memory_role_embedding = self.role_content_aware_mapping(
+                    torch.cat([memory_input[imgid:imgid+1].permute(0,2,3,1).expand(*memory_role_embedding.shape), memory_role_embedding], dim=-1)
+                )
                 memory_role_embedding = memory_role_embedding.flatten(start_dim=1, end_dim=2).unsqueeze(2) # (#query, #memory, batch size, dim)
             if self.args.use_relation_tgt_mask:
                 tgt_mask = (torch.diag(sampled_rel_pred_exists) != 0)
@@ -191,7 +199,7 @@ class VRTR(nn.Module):
             else:
                 outs = self.interaction_decoder(tgt=self.rel_query_pre_proj(sampled_rel_reps).unsqueeze(1),
                                                 tgt_mask=tgt_mask,
-                                                memory=self.memory_input_proj(memory_input[imgid:imgid+1]).flatten(2).permute(2,0,1),
+                                                memory=memory_input[imgid:imgid+1].flatten(2).permute(2,0,1),
                                                 memory_mask=memory_union_mask,
                                                 memory_key_padding_mask=memory_input_mask[imgid:imgid+1].flatten(1),
                                                 pos=memory_pos[imgid:imgid+1].flatten(2).permute(2, 0, 1),
@@ -666,7 +674,7 @@ class RelationFeatureExtractor(nn.Module):
 
         # fusion
         self.fusion_fc = nn.Sequential(
-            make_fc(fusion_dim, out_dim), nn.ReLU(),
+            make_fc(fusion_dim, out_dim), nn.ReLU(), #nn.Dropout(0.1),
             make_fc(out_dim, out_dim), nn.ReLU()
         )
 
