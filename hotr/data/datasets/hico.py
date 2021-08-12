@@ -239,7 +239,7 @@ def make_hico_transforms(image_set):
     raise ValueError(f'unknown {image_set}')
 
 
-def merge_box_annotations(org_image_annotation, overlap_iou_thres=0.75):
+def merge_box_annotations(org_image_annotation, overlap_iou_thres=0.7):
     merged_image_annotation = org_image_annotation.copy()
 
     # compute match

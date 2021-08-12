@@ -233,7 +233,7 @@ class VRTR(nn.Module):
         return [{"pred_logits": l, "pred_boxes": b} for l, b in zip(outputs_class[:-1], outputs_coord[:-1])]
 
     # merge boxes (NMS)
-    def apply_nms(self, inst_scores, inst_labels, cxcywh_boxes, threshold=0.75):
+    def apply_nms(self, inst_scores, inst_labels, cxcywh_boxes, threshold=0.7):
         xyxy_boxes = box_ops.box_cxcywh_to_xyxy(cxcywh_boxes)
         box_areas = (xyxy_boxes[:, 2:] - xyxy_boxes[:, :2]).prod(-1)
         box_area_sum = box_areas.unsqueeze(1) + box_areas.unsqueeze(0)
