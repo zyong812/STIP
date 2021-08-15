@@ -13,6 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from hotr.util.misc import accuracy, is_dist_avail_and_initialized, get_world_size
 from hotr.models.vrtr_utils import check_annotation
+import time
 
 # sequential visual relationship transformer
 class VRTR(nn.Module):
@@ -72,6 +73,7 @@ class VRTR(nn.Module):
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
 
+        start_time = time.time()
         # >>>>>>>>>>>>  BACKBONE LAYERS  <<<<<<<<<<<<<<<
         features, pos = self.detr.backbone(samples)
         bs = features[-1].tensors.shape[0]
@@ -210,6 +212,7 @@ class VRTR(nn.Module):
             pred_actions.append(action_logits)
             pred_rel_exists.append(sampled_rel_pred_exists)
 
+        hoi_recognition_time = time.time() - start_time
         out = {
             "pred_logits": outputs_class[-1],
             "pred_boxes": outputs_coord[-1],
@@ -217,7 +220,7 @@ class VRTR(nn.Module):
             "pred_actions": [p[-1].squeeze(1) for p in pred_actions],
             "pred_action_exists": pred_rel_exists,
             "det2gt_indices": det2gt_indices,
-            "hoi_recognition_time": 0,
+            "hoi_recognition_time": hoi_recognition_time,
         }
         if self.args.hoi_aux_loss: out['hoi_aux_outputs'] = self._set_hoi_aux_loss(pred_actions)
         if self.args.train_detr and self.args.aux_loss: out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
@@ -598,7 +601,7 @@ class VRTRPostProcess(nn.Module):
 
                 result_dict.update({
                     'pair_score': score,
-                    'hoi_recognition_time': 0,
+                    'hoi_recognition_time': outputs['hoi_recognition_time'],
                 })
 
                 results.append(result_dict)
@@ -636,7 +639,7 @@ class VRTRPostProcess(nn.Module):
                     'verb_scores': vs.to('cpu'),
                     'sub_ids': ids[:ids.shape[0] // 2],
                     'obj_ids': ids[ids.shape[0] // 2:],
-                    'hoi_recognition_time': 0,
+                    'hoi_recognition_time': outputs['hoi_recognition_time'],
                     'orig_size': torch.tensor([img_h[batch_idx], img_w[batch_idx]])
                 }
                 results.append(res_dict)

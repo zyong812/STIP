@@ -137,15 +137,7 @@ def main(args):
                 args.resume, map_location='cpu', check_hash=True)
         else:
             checkpoint = torch.load(args.resume, map_location='cpu')
-
-        if 'hico_ft_q16.pth' in args.resume: # hack: for loading hico fine-tuned detr
-            mapped_state_dict = OrderedDict()
-            for k, v in checkpoint['model'].items():
-                if k.startswith('detr.'):
-                    mapped_state_dict[k.replace('detr.', '')] = v
-            model_without_ddp.load_state_dict(mapped_state_dict)
-        else:
-            model_without_ddp.load_state_dict(checkpoint['model'])
+        model_without_ddp.load_state_dict(checkpoint['model'])
 
     if args.eval:
         # test only mode
