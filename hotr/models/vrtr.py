@@ -48,22 +48,18 @@ class VRTR(nn.Module):
         )
 
         # relation classification
-        self.memory_input_proj = nn.Conv2d(relation_feature_map_dim, self.args.hidden_dim, kernel_size=1)
         self.rel_query_pre_proj = make_fc(rel_rep_dim, self.args.hidden_dim)
-
-        if args.use_memory_role_embedding:
-            self.role_embeddings = nn.Embedding(6, self.args.hidden_dim) # 0-pad, 1-image, 2-union, 3-subj, 4-obj, 5-intersection
-            self.role_content_aware_mapping = nn.Sequential(
-                make_fc(self.args.hidden_dim * 2, self.args.hidden_dim), nn.ReLU(),
-                make_fc(self.args.hidden_dim, self.args.hidden_dim)
-            )
-            # field_size = 8
-            # self.head_role_field = nn.Parameter(torch.zeros(1, self.args.hidden_dim, field_size, field_size))
-            # self.tail_role_field = nn.Parameter(torch.zeros(1, self.args.hidden_dim, field_size, field_size))
-
         if self.args.no_interaction_decoder:
             self.args.hoi_aux_loss = False
         else:
+            self.memory_input_proj = nn.Conv2d(relation_feature_map_dim, self.args.hidden_dim, kernel_size=1)
+            if args.use_memory_role_embedding:
+                self.role_embeddings = nn.Embedding(6, self.args.hidden_dim) # 0-pad, 1-image, 2-union, 3-subj, 4-obj, 5-intersection
+                self.role_content_aware_mapping = nn.Sequential(
+                    make_fc(self.args.hidden_dim * 2, self.args.hidden_dim), nn.ReLU(),
+                    make_fc(self.args.hidden_dim, self.args.hidden_dim)
+                )
+
             decoder_layer = TransformerDecoderLayer(d_model=self.args.hidden_dim, nhead=self.args.hoi_nheads)
             decoder_norm = nn.LayerNorm(self.args.hidden_dim)
             self.interaction_decoder = TransformerDecoder(decoder_layer, self.args.hoi_dec_layers, decoder_norm, return_intermediate=True)
@@ -116,7 +112,9 @@ class VRTR(nn.Module):
         elif self.args.relation_feature_map_from == 'detr_encoder':
             relation_feature_map = NestedTensor(detr_encoder_outs, memory_input_mask)
             memory_input = detr_encoder_outs
-        memory_input = self.memory_input_proj(memory_input)
+
+        if not self.args.no_interaction_decoder:
+            memory_input = self.memory_input_proj(memory_input)
 
         for imgid in range(bs):
             # >>>>>>>>>>>> relation proposal <<<<<<<<<<<<<<<
@@ -178,27 +176,27 @@ class VRTR(nn.Module):
                 sampled_rel_pred_exists = p_relation_exist_logits.squeeze(1)[sampled_rel_inds]
 
             # >>>>>>>>>>>> relation classification <<<<<<<<<<<<<<<
-            memory_role_embedding, memory_union_mask, tgt_mask = None, None, None
-            subj_mask, obj_mask, union_mask, _ = self.generate_layout_masks(sampled_rel_pairs, memory_input_mask, outputs_coord[-1, imgid], idx=imgid)
-            if self.args.use_memory_union_mask:
-                memory_union_mask = union_mask.flatten(1)
-            if self.args.use_memory_role_embedding:
-                role_map = (~union_mask).long() + (~memory_input_mask[imgid:imgid+1]).long() + (~subj_mask).long() + (~obj_mask).long()*2
-                # plt.imshow(role_map[0].cpu().numpy(), cmap=plt.cm.hot_r); plt.colorbar(); plt.show()
-                memory_role_embedding = self.role_embeddings(role_map)
-                memory_role_embedding = self.role_content_aware_mapping(
-                    torch.cat([memory_input[imgid:imgid+1].permute(0,2,3,1).expand(*memory_role_embedding.shape), memory_role_embedding], dim=-1)
-                )
-                memory_role_embedding = memory_role_embedding.flatten(start_dim=1, end_dim=2).unsqueeze(2) # (#query, #memory, batch size, dim)
-            if self.args.use_relation_tgt_mask:
-                tgt_mask = (torch.diag(sampled_rel_pred_exists) != 0)
-                attend_ids = sampled_rel_pred_exists.sort(descending=True)[1][:self.args.use_relation_tgt_mask_attend_topk]
-                tgt_mask[:, attend_ids] = True
-                tgt_mask = tgt_mask.float().masked_fill(tgt_mask == 0, float('-inf')).masked_fill(tgt_mask == 1, float(0.0))
-
             if self.args.no_interaction_decoder:
                 outs = self.rel_query_pre_proj(sampled_rel_reps).unsqueeze(1).unsqueeze(0)
             else:
+                memory_role_embedding, memory_union_mask, tgt_mask = None, None, None
+                subj_mask, obj_mask, union_mask, _ = self.generate_layout_masks(sampled_rel_pairs, memory_input_mask, outputs_coord[-1, imgid], idx=imgid)
+                if self.args.use_memory_union_mask:
+                    memory_union_mask = union_mask.flatten(1)
+                if self.args.use_memory_role_embedding:
+                    role_map = (~union_mask).long() + (~memory_input_mask[imgid:imgid+1]).long() + (~subj_mask).long() + (~obj_mask).long()*2
+                    # plt.imshow(role_map[0].cpu().numpy(), cmap=plt.cm.hot_r); plt.colorbar(); plt.show()
+                    memory_role_embedding = self.role_embeddings(role_map)
+                    memory_role_embedding = self.role_content_aware_mapping(
+                        torch.cat([memory_input[imgid:imgid+1].permute(0,2,3,1).expand(*memory_role_embedding.shape), memory_role_embedding], dim=-1)
+                    )
+                    memory_role_embedding = memory_role_embedding.flatten(start_dim=1, end_dim=2).unsqueeze(2) # (#query, #memory, batch size, dim)
+                if self.args.use_relation_tgt_mask:
+                    tgt_mask = (torch.diag(sampled_rel_pred_exists) != 0)
+                    attend_ids = sampled_rel_pred_exists.sort(descending=True)[1][:self.args.use_relation_tgt_mask_attend_topk]
+                    tgt_mask[:, attend_ids] = True
+                    tgt_mask = tgt_mask.float().masked_fill(tgt_mask == 0, float('-inf')).masked_fill(tgt_mask == 1, float(0.0))
+
                 outs = self.interaction_decoder(tgt=self.rel_query_pre_proj(sampled_rel_reps).unsqueeze(1),
                                                 tgt_mask=tgt_mask,
                                                 memory=memory_input[imgid:imgid+1].flatten(2).permute(2,0,1),
@@ -278,9 +276,6 @@ class VRTR(nn.Module):
         rounded_union_boxes = torch.min(scaled_union_boxes.round(), bound_upper_inds).int()
 
         role_embeddings = None
-        # if self.args.use_memory_role_embedding:
-        #     role_embeddings = torch.zeros((len(rounded_union_boxes), feature_masks.shape[1], feature_masks.shape[2], self.args.hidden_dim)).to(feature_masks.device)
-
         # build masks: hit region=False, other region=True
         rel_head_mask = torch.ones_like(feature_masks[idx]).unsqueeze(0).repeat((len(rel_pairs), 1, 1))
         rel_tail_mask = torch.ones_like(feature_masks[idx]).unsqueeze(0).repeat((len(rel_pairs), 1, 1))
@@ -292,13 +287,6 @@ class VRTR(nn.Module):
                                rounded_tail_boxes[rid,0]:rounded_tail_boxes[rid,2]+1] = False
             rel_union_mask[rid, rounded_union_boxes[rid,1]:rounded_union_boxes[rid,3]+1,
                                 rounded_union_boxes[rid,0]:rounded_union_boxes[rid,2]+1] = False
-
-            ## slow
-            # if self.args.use_memory_role_embedding:
-            #     head_field = F.interpolate(self.head_role_field, size=(rounded_head_boxes[rid,3]-rounded_head_boxes[rid,1]+1, rounded_head_boxes[rid,2]-rounded_head_boxes[rid,0]+1), mode='nearest')
-            #     tail_field = F.interpolate(self.tail_role_field, size=(rounded_tail_boxes[rid,3]-rounded_tail_boxes[rid,1]+1, rounded_tail_boxes[rid,2]-rounded_tail_boxes[rid,0]+1), mode='nearest')
-            #     role_embeddings[rid, rounded_head_boxes[rid,1]:rounded_head_boxes[rid,3]+1, rounded_head_boxes[rid,0]:rounded_head_boxes[rid,2]+1] += head_field.squeeze(0).permute(1,2,0)
-            #     role_embeddings[rid, rounded_tail_boxes[rid,1]:rounded_tail_boxes[rid,3]+1, rounded_tail_boxes[rid,0]:rounded_tail_boxes[rid,2]+1] += tail_field.squeeze(0).permute(1,2,0)
 
         return rel_head_mask, rel_tail_mask, rel_union_mask, role_embeddings
 
