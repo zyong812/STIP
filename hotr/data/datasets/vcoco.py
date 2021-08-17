@@ -460,6 +460,7 @@ def build(image_set, args):
     assert root.exists(), f'provided V-COCO path {root} does not exist'
     PATHS = {
         "train": (root / "coco/images/train2014/", root / "data/vcoco" / 'vcoco_trainval.json'),
+        # "train": (root / "coco/images/train2014/", root / "data/vcoco" / 'vcoco_train.json'),
         "val": (root / "coco/images/val2014", root / "data/vcoco" / 'vcoco_test.json'),
         "test": (root / "coco/images/val2014", root / "data/vcoco" / 'vcoco_test.json'),
     }
