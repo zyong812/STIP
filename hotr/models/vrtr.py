@@ -59,6 +59,12 @@ class VRTR(nn.Module):
                     make_fc(self.args.hidden_dim * 2, self.args.hidden_dim), nn.ReLU(),
                     make_fc(self.args.hidden_dim, self.args.hidden_dim)
                 )
+            if self.args.use_query_structure_encoding:
+                self.query_structure_embeddings = nn.Embedding(6, self.args.hidden_dim)
+                self.query_structure_content_aware_mapping = nn.Sequential(
+                    make_fc(self.args.hidden_dim * 2, self.args.hidden_dim), nn.ReLU(),
+                    make_fc(self.args.hidden_dim, self.args.hidden_dim)
+                )
 
             decoder_layer = TransformerDecoderLayer(d_model=self.args.hidden_dim, nhead=self.args.hoi_nheads)
             decoder_norm = nn.LayerNorm(self.args.hidden_dim)
@@ -176,11 +182,28 @@ class VRTR(nn.Module):
                 sampled_rel_pred_exists = p_relation_exist_logits.squeeze(1)[sampled_rel_inds]
 
             # >>>>>>>>>>>> relation classification <<<<<<<<<<<<<<<
+            query_reps = self.rel_query_pre_proj(sampled_rel_reps).unsqueeze(1)
             if self.args.no_interaction_decoder:
-                outs = self.rel_query_pre_proj(sampled_rel_reps).unsqueeze(1).unsqueeze(0)
+                outs = query_reps.unsqueeze(0)
             else:
-                memory_role_embedding, memory_union_mask, tgt_mask = None, None, None
+                query_structure_encoding, memory_role_embedding, memory_union_mask, tgt_mask = None, None, None, None
                 subj_mask, obj_mask, union_mask, _ = self.generate_layout_masks(sampled_rel_pairs, memory_input_mask, outputs_coord[-1, imgid], idx=imgid)
+                if self.args.use_relation_tgt_mask:
+                    tgt_mask = (torch.diag(sampled_rel_pred_exists) != 0)
+                    attend_ids = sampled_rel_pred_exists.sort(descending=True)[1][:self.args.use_relation_tgt_mask_attend_topk]
+                    tgt_mask[:, attend_ids] = True
+                    tgt_mask = tgt_mask.float().masked_fill(tgt_mask == 0, float('-inf')).masked_fill(tgt_mask == 1, float(0.0))
+                if self.args.use_query_structure_encoding:
+                    dependency_map = torch.zeros((len(sampled_rel_pairs), len(sampled_rel_pairs))).to(sampled_rel_reps.device).long() # independent: 0
+                    dependency_map[sampled_rel_pairs[:, 0].unsqueeze(1) == sampled_rel_pairs[:, 0].unsqueeze(0)] = 1 # same_subj: 1
+                    dependency_map[sampled_rel_pairs[:, 1].unsqueeze(1) == sampled_rel_pairs[:, 1].unsqueeze(0)] = 2 # same_obj: 2
+                    dependency_map[sampled_rel_pairs[:, 0].unsqueeze(1) == sampled_rel_pairs[:, 1].unsqueeze(0)] = 3 # subj=obj: 3
+                    dependency_map[sampled_rel_pairs[:, 1].unsqueeze(1) == sampled_rel_pairs[:, 0].unsqueeze(0)] = 4 # obj=subj: 4
+                    dependency_map.fill_diagonal_(5) # self: 5
+                    query_structure_encoding = self.query_structure_embeddings(dependency_map)
+                    query_structure_encoding = self.query_structure_content_aware_mapping(
+                        torch.cat([query_reps.permute(1,0,2).expand(*query_structure_encoding.shape), query_structure_encoding], dim=-1)
+                    ).unsqueeze(2) # (#query, #query, batch size, dim)
                 if self.args.use_memory_union_mask:
                     memory_union_mask = union_mask.flatten(1)
                 if self.args.use_memory_role_embedding:
@@ -189,20 +212,15 @@ class VRTR(nn.Module):
                     memory_role_embedding = self.role_embeddings(role_map)
                     memory_role_embedding = self.role_content_aware_mapping(
                         torch.cat([memory_input[imgid:imgid+1].permute(0,2,3,1).expand(*memory_role_embedding.shape), memory_role_embedding], dim=-1)
-                    )
-                    memory_role_embedding = memory_role_embedding.flatten(start_dim=1, end_dim=2).unsqueeze(2) # (#query, #memory, batch size, dim)
-                if self.args.use_relation_tgt_mask:
-                    tgt_mask = (torch.diag(sampled_rel_pred_exists) != 0)
-                    attend_ids = sampled_rel_pred_exists.sort(descending=True)[1][:self.args.use_relation_tgt_mask_attend_topk]
-                    tgt_mask[:, attend_ids] = True
-                    tgt_mask = tgt_mask.float().masked_fill(tgt_mask == 0, float('-inf')).masked_fill(tgt_mask == 1, float(0.0))
+                    ).flatten(start_dim=1, end_dim=2).unsqueeze(2) # (#query, #memory, batch size, dim)
 
-                outs = self.interaction_decoder(tgt=self.rel_query_pre_proj(sampled_rel_reps).unsqueeze(1),
+                outs = self.interaction_decoder(tgt=query_reps,
                                                 tgt_mask=tgt_mask,
                                                 memory=memory_input[imgid:imgid+1].flatten(2).permute(2,0,1),
                                                 memory_mask=memory_union_mask,
                                                 memory_key_padding_mask=memory_input_mask[imgid:imgid+1].flatten(1),
                                                 pos=memory_pos[imgid:imgid+1].flatten(2).permute(2, 0, 1),
+                                                query_structure_encoding=query_structure_encoding,
                                                 memory_role_embedding=memory_role_embedding)
             action_logits = self.action_embed(outs)
 

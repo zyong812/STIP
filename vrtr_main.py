@@ -267,6 +267,7 @@ if __name__ == '__main__':
     parser.add_argument('--not_use_memory_role_embedding', dest='use_memory_role_embedding', action='store_false', default=True, help='layout encodings')
     parser.add_argument('--not_use_tail_semantic_feature', dest='use_tail_semantic_feature', action='store_false', default=True)
     parser.add_argument('--not_apply_nms_on_detr', dest='apply_nms_on_detr', action='store_false', default=True)
+    parser.add_argument('--use_query_structure_encoding', action='store_true', default=False)
 
     # not sensitive or effective
     parser.add_argument('--adaptive_relation_query_num', action='store_true', default=False)
