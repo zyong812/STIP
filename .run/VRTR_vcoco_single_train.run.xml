@@ -1,0 +1,25 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="STIP_vcoco_single_train" type="PythonConfigurationType" factoryName="Python" singleton="false">
+    <module name="HOTR" />
+    <option name="INTERPRETER_OPTIONS" value="" />
+    <option name="PARENT_ENVS" value="true" />
+    <envs>
+      <env name="PYTHONUNBUFFERED" value="1" />
+      <env name="CUDA_VISIBLE_DEVICES" value="1" />
+    </envs>
+    <option name="SDK_HOME" value="" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <option name="IS_MODULE_SDK" value="true" />
+    <option name="ADD_CONTENT_ROOTS" value="true" />
+    <option name="ADD_SOURCE_ROOTS" value="true" />
+    <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/STIP_main.py" />
+    <option name="PARAMETERS" value="--group_name STIP_opensource --run_name test --HOIDet --validate --hoi_aux_loss --lr 5e-5 --num_hoi_queries 32 --no_aux_loss --dataset_file vcoco --detr_weights https://dl.fbaipublicfiles.com/detr/detr-r50-e632da11.pth --data_path v-coco --output_dir checkpoints/vcoco/ --batch_size 4 --reduce_lr_on_plateau_patience 2" />
+    <option name="SHOW_COMMAND_LINE" value="false" />
+    <option name="EMULATE_TERMINAL" value="false" />
+    <option name="MODULE_MODE" value="false" />
+    <option name="REDIRECT_INPUT" value="false" />
+    <option name="INPUT_FILE" value="" />
+    <method v="2" />
+  </configuration>
+</component>
