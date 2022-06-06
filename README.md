@@ -111,4 +111,4 @@ If you find this code helpful for your research, please cite our paper.
 
 ## Others
 
-Credit: This repo is built upon https://github.com/kakaobrain/HOTR
+Credit: [DETR](https://github.com/facebookresearch/detr), [HOTR](https://github.com/kakaobrain/HOTR)
