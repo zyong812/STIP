@@ -109,6 +109,6 @@ If you find this code helpful for your research, please cite our paper.
 }
 ```
 
-## Others
+## Acknowledgement
 
-Credit: [DETR](https://github.com/facebookresearch/detr), [HOTR](https://github.com/kakaobrain/HOTR)
+This repo is based on [DETR](https://github.com/facebookresearch/detr), [HOTR](https://github.com/kakaobrain/HOTR). Thanks for their wonderful works.
