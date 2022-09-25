@@ -95,6 +95,16 @@ python STIP_main.py --validate \
     --resume checkpoints/hico-det/STIP_debug/best.pth --train_detr
 ```
 
+## License
+
+This repo is released under the [Apache License, Version 2.0](LICENSE).
+
+
+## Acknowledgement
+
+This repo is based on [DETR](https://github.com/facebookresearch/detr), [HOTR](https://github.com/kakaobrain/HOTR). Thanks for their wonderful works.
+
+
 ## Citation
 
 If you find this code helpful for your research, please cite our paper.
@@ -108,7 +118,3 @@ If you find this code helpful for your research, please cite our paper.
     pages     = {19548-19557}
 }
 ```
-
-## Acknowledgement
-
-This repo is based on [DETR](https://github.com/facebookresearch/detr), [HOTR](https://github.com/kakaobrain/HOTR). Thanks for their wonderful works.
