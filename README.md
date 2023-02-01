@@ -14,7 +14,7 @@ Recent high-performing Human-Object Interaction (HOI) detection techniques have 
 ### 1. Environmental Setup
 ```bash
 $ conda create -n STIP python=3.7
-$ conda install -c pytorch pytorch torchvision # PyTorch 1.7.1, torchvision 0.8.2, CUDA=11.0
+$ conda install pytorch==1.7.1 torchvision==0.8.2 torchaudio==0.7.2 cudatoolkit=11.0 -c pytorch # PyTorch 1.7.1, torchvision 0.8.2, CUDA=11.0
 $ conda install cython scipy
 $ pip install pycocotools
 $ pip install opencv-python
