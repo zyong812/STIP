@@ -95,6 +95,10 @@ python STIP_main.py --validate \
     --resume checkpoints/hico-det/STIP_debug/best.pth --train_detr
 ```
 
+Pre-trained models:
+* [VCOCO](https://cuhko365-my.sharepoint.com/:u:/g/personal/218019030_link_cuhk_edu_cn/ETPIGJHooGVPuOXDBC3WTaoBQBGHXioj4hAbjllSTSOn6A?e=KBN0bq)
+* [HICO-DET (w/o jointly finetune)](https://cuhko365-my.sharepoint.com/:u:/g/personal/218019030_link_cuhk_edu_cn/EZyYzmW7vL9Bh7zKwT1JGFEBKbTkbs4vD9QW7kfs8EV_gQ?e=NjKBjX)
+
 ## License
 
 This repo is released under the [Apache License, Version 2.0](LICENSE).
