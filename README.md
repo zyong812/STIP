@@ -22,10 +22,10 @@ $ pip install wandb
 ```
 
 ### 2. HOI dataset setup
-Our current version supports the experiments for both [V-COCO](https://github.com/s-gupta/v-coco) and [HICO-DET](https://drive.google.com/file/d/1QZcJmGVlF9f4h-XLWe9Gkmnmj2z1gSnk/view) dataset.
-Download the dataset under the pulled directory.
-For HICO-DET, we use the [annotation files](https://drive.google.com/file/d/1QZcJmGVlF9f4h-XLWe9Gkmnmj2z1gSnk/view) provided by the PPDM authors.
-Download the [list of actions](https://drive.google.com/open?id=1EeHNHuYyJI-qqDk_-5nay7Mb07tzZLsl) as `list_action.txt` and place them under the unballed hico-det directory.
+Our current version supports the experiments for
+- [V-COCO](https://github.com/s-gupta/v-coco) and [HICO-DET](https://drive.google.com/file/d/1QZcJmGVlF9f4h-XLWe9Gkmnmj2z1gSnk/view) dataset. Download the dataset under the pulled directory.
+- For HICO-DET, ~we use the [annotation files](https://drive.google.com/file/d/1QZcJmGVlF9f4h-XLWe9Gkmnmj2z1gSnk/view) provided by the PPDM authors. Download the [list of actions](https://drive.google.com/open?id=1EeHNHuYyJI-qqDk_-5nay7Mb07tzZLsl) as `list_action.txt` and place them under the unballed hico-det directory.~ If these download links are broken, please download them from [hico_20160224_det](https://cuhko365-my.sharepoint.com/:u:/g/personal/218019030_link_cuhk_edu_cn/EY3AbysMMUBJmQEt8zl4j9UBxHH6no2-g4o63EIt38GkgQ?e=oCEIsG). 
+
 Below we present how you should place the files.
 ```bash
 # V-COCO setup
