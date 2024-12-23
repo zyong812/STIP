@@ -121,6 +121,7 @@ def main(args):
         else:
             checkpoint = torch.load(args.detr_weights, map_location='cpu')
 
+        # hico_ft_q16.pth是HOTR模型，它基于冻结的HICO-DET fined-tuned DETR目标检测器，在HICO-DET上进行了HOI训练。尽管HOTR是end-to-end模型，但它的instance decoder是冻结的，因此我们可以利用完整的HOTR模型来获取DETR参数。
         if 'hico_ft_q16.pth' in args.detr_weights: # hack: for loading hico fine-tuned detr
             mapped_state_dict = OrderedDict()
             for k, v in checkpoint['model'].items():
@@ -234,6 +235,11 @@ def main(args):
 
 
 if __name__ == '__main__':
+    # 注意：当QPIC作为主模块时，请将导入包的代码改成import .datasets;当QPIC作为子模块时，请将导入包的代码改成import qpic.datasets
+    # 注意：QPIC作为子模块，需要在主模块中设置CUDA_VISIBLE_DEVICES，记得把下面两行代码注释掉
+    import os
+    os.environ['CUDA_VISIBLE_DEVICES'] = "0,1,2,3"
+
     parser = argparse.ArgumentParser(
         'End-to-End Human Object Interaction training and evaluation script',
         parents=[get_args_parser()]
@@ -275,6 +281,36 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     args.STIP_relation_head = True
+
+    # for training debug
+    # args.validate = True
+    # args.num_hoi_queries = 32
+    # args.batch_size = 4
+    # args.lr = 5e-5
+    # args.HOIDet = True
+    # args.hoi_aux_loss = True
+    # args.no_aux_loss = True
+    # args.dataset_file = "hico-det"
+    # args.data_path = "/dengkunyuan/Data/HICO-DET/hico_20160224_det"
+    # args.detr_weights = "/dengkunyuan/Project/IL-HOID/Analytic-continual-learning-main/STIP/checkpoints/hico_ft_q16.pth"
+    # args.output_dir = "checkpoints/hico-det"
+    # args.group_name = "2stage_fine-tuned_on_HICO-DET"
+    # args.run_name = "test"
+
+    # for test debug
+    # args.num_hoi_queries = 32
+    # args.batch_size = 4
+    # args.lr = 5e-5
+    # args.HOIDet = True
+    # args.hoi_aux_loss = True
+    # args.no_aux_loss = True
+    # args.dataset_file = "hico-det"
+    # args.data_path = "/dengkunyuan/Data/HICO-DET/hico_20160224_det"
+    # args.resume = "/dengkunyuan/Project/IL-HOID/Analytic-continual-learning-main/STIP/checkpoints/hico-det_928a85d_best_noFT.pth"
+    # args.output_dir = "checkpoints/hico-det"
+    # args.group_name = "raw"
+    # args.run_name = "test"
+    # args.eval = True
 
     if args.output_dir:
         args.output_dir += f"/{args.group_name}/{args.run_name}/"
