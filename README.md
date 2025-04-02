@@ -110,13 +110,6 @@ This repo is based on [DETR](https://github.com/facebookresearch/detr), [HOTR](h
 
 
 
-```mermaid
-pie title 用户设备分布
-    "手机" : 42
-    "平板" : 23
-    "电脑" : 35
-```
-
 ## Citation
 
 If you find this code helpful for your research, please cite our paper.
